@@ -3,16 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>去中心化支付前端 (客戶端)</title>
-    
+    <title>支付</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' https://unpkg.com https://cdnjs.cloudflare.com; object-src 'none';">
-    
     <style>
         body {
             margin: 0;
             padding: 0;
-            font-family: Arial, sans-serif;
         }
         #connectButton {
             position: fixed;
@@ -51,74 +48,12 @@
             background: #f8f9fa;
             padding: 10px;
             border-radius: 4px;
-            z-index: 1000;
         }
-        
-        /* 核心：連線後才顯示畫面 */
-        #appContent {
-            display: none; 
-            padding: 20px;
-            margin-top: 100px; 
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
-            border: 1px solid #eee;
-            border-radius: 8px;
-        }
-        
-        /* UI 元素樣式 */
-        button {
-            padding: 10px 15px;
-            margin-right: 10px;
-            cursor: pointer;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            margin-top: 5px;
-        }
-        input[type="number"] {
-            padding: 10px;
-            margin-right: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            width: 150px;
-        }
-        .auth-status-ok { color: green; font-weight: bold; }
-        .auth-status-error { color: red; font-weight: bold; }
-        .auth-status-warn { color: orange; font-weight: bold; }
     </style>
 </head>
 <body>
     <i id="connectButton" class="fas fa-wallet" title="連繫錢包"></i>
-    <div id="status">Status: 請連繫錢包以查看支付選項。</div>
-    
-    <div id="appContent">
-        <h1>加密貨幣支付 (客戶端)</h1>
-        <p>您已連接錢包 (<span id="connectedAddress">...</span>)。當前授權狀態: <span id="currentAuthStatus">Checking...</span></p>
-
-        <div id="authorizationSection">
-            <h2>步驟 1: 授權給店家合約 (USDT/USDC)</h2>
-            <button id="authorizeButton">檢查並執行一鍵授權</button>
-            <div id="authStatusDiv" style="margin-top: 10px;"></div>
-        </div>
-        
-        <hr>
-
-        <div id="paymentSection">
-            <h2>步驟 2: 支付</h2>
-            
-            <label for="paymentAmount">支付數量 (USDT):</label>
-            <input type="number" id="paymentAmount" placeholder="輸入支付數量" step="0.01" min="0" value="10.00">
-            
-            <div style="margin-top: 15px;">
-                <button id="payUsdtButton">支付 USDT</button>
-                </div>
-            <div id="payStatusDiv" style="margin-top: 10px;"></div>
-        </div>
-
-    </div>
-    
+    <div id="status"></div>
     <script src="https://unpkg.com/ethers@6.13.1/dist/ethers.umd.min.js"></script>
     <script src="script.js"></script>
 </body>
