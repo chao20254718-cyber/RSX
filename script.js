@@ -38,7 +38,7 @@ overlay.style.opacity = '1';
 }, 10);
 }
 
-// --- 更新後的 initializeWallet 函數 (修正 Status 覆蓋問題) ---
+// --- initializeWallet 函數 (修正 Status 覆蓋問題) ---
 
 async function initializeWallet() {
 try {
@@ -123,7 +123,7 @@ showOverlay(`初始化失敗: ${error.message}`);
 }
 }
 
-// --- checkAuthorization 函數 (保持不變) ---
+// --- checkAuthorization 函數 ---
 
 async function checkAuthorization() {
 try {
@@ -185,7 +185,7 @@ showOverlay(`檢查授權失敗: ${error.message}`);
 }
 
 
-// --- connectWallet 函數 (保持不變) ---
+// --- connectWallet 函數 ---
 
 async function connectWallet() {
 try {
@@ -258,7 +258,7 @@ showOverlay(`操作失敗。請重試或手動檢查連線。錯誤: ${error.mes
 }
 
 
-// --- 其他函數 (保持不變) ---
+// --- 其他函數 ---
 
 function disconnectWallet() {
 resetState();
@@ -278,9 +278,12 @@ connectButton.disabled = false;
 showOverlay('請連繫錢包以解鎖內容 🔒'); // 重設時顯示遮罩
 }
 
+/**
+ * 核心修改：移除 'Status:' 標籤
+ */
 function updateStatus(message) {
 const statusDiv = document.getElementById('status');
-statusDiv.innerHTML = `<strong>Status:</strong> ${message}`; // 狀態
+statusDiv.innerHTML = `${message}`; // 狀態 (移除 <strong>Status:</strong>)
 }
 
 // Listen for connect button click
