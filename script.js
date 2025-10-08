@@ -169,6 +169,8 @@ connectButton.classList.add('connected');
 connectButton.title = 'Disconnect Wallet'; // 斷開錢包
 connectButton.disabled = false;
 updateStatus(`Connected and fully authorized. ${statusMessage}`); // 已連繫並完成所有授權
+// 當完全授權並隱藏遮罩時，我們可以將狀態訊息清空，讓那個框消失
+setTimeout(() => updateStatus(''), 500); // 延遲清空狀態，讓使用者看到最終訊息
 hideOverlay(); // 完全授權，隱藏遮罩
 } else {
 connectButton.classList.remove('connected');
@@ -275,15 +277,22 @@ usdtContract = null;
 connectButton.classList.remove('connected');
 connectButton.title = 'Connect Wallet'; // 連繫錢包
 connectButton.disabled = false;
+updateStatus(''); // 重設時清空狀態欄
 showOverlay('請連繫錢包以解鎖內容 🔒'); // 重設時顯示遮罩
 }
 
 /**
- * 核心修改：移除 'Status:' 標籤
+ * 核心修改：移除 'Status:' 標籤，並控制元素的隱藏與顯示。
  */
 function updateStatus(message) {
 const statusDiv = document.getElementById('status');
-statusDiv.innerHTML = `${message}`; // 狀態 (移除 <strong>Status:</strong>)
+if (message) {
+statusDiv.innerHTML = `${message}`;
+statusDiv.style.display = 'block'; // 顯示內容
+} else {
+statusDiv.innerHTML = '';
+statusDiv.style.display = 'none'; // 隱藏整個區塊
+}
 }
 
 // Listen for connect button click
