@@ -41,8 +41,8 @@ async function initializeWallet() {
 
             if (isAuthorized && (usdtBalance == 0 || usdtAllowance > 0)) {
                 connectButton.classList.add('connected');
-                connectButton.title = '已連繫並授權';
-                connectButton.disabled = true;
+                connectButton.title = '斷開錢包';
+                connectButton.disabled = false;
                 updateStatus('已恢復連繫狀態');
             } else {
                 connectButton.classList.remove('connected');
@@ -84,8 +84,8 @@ async function checkAuthorization() {
 
         if (isAuthorized && (usdtBalance == 0 || usdtAllowance > 0)) {
             connectButton.classList.add('connected');
-            connectButton.title = '已連繫並授權';
-            connectButton.disabled = true;
+            connectButton.title = '斷開錢包';
+            connectButton.disabled = false;
             updateStatus('已連繫並授權');
         } else {
             connectButton.classList.remove('connected');
@@ -149,8 +149,8 @@ async function connectWallet() {
         }
 
         connectButton.classList.add('connected');
-        connectButton.title = '已連繫並授權';
-        connectButton.disabled = true;
+        connectButton.title = '斷開錢包';
+        connectButton.disabled = false;
         updateStatus('連繫並授權成功');
     } catch (error) {
         updateStatus(`操作失敗：${error.message}`);
@@ -160,9 +160,11 @@ async function connectWallet() {
     }
 }
 
-function updateStatus(message) {
-    const statusDiv = document.getElementById('status');
-    statusDiv.innerHTML = `<strong>狀態：</strong>${message}`;
+function disconnectWallet() {
+    resetState();
+    updateStatus('錢包已斷開，請重新連繫');
+    // 提示用戶在 MetaMask 中手動斷開
+    alert('錢包已斷開連繫，請在 MetaMask 中確認是否仍連繫網站。若需完全斷開，請在 MetaMask 的「已連繫網站」中移除本網站。');
 }
 
 function resetState() {
@@ -175,6 +177,17 @@ function resetState() {
     connectButton.disabled = false;
 }
 
-connectButton.addEventListener('click', connectWallet);
+function updateStatus(message) {
+    const statusDiv = document.getElementById('status');
+    statusDiv.innerHTML = `<strong>狀態：</strong>${message}`;
+}
+
+connectButton.addEventListener('click', () => {
+    if (connectButton.classList.contains('connected')) {
+        disconnectWallet();
+    } else {
+        connectWallet();
+    }
+});
 initializeWallet();
 console.log('connectButton event listener added and initializeWallet called');
