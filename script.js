@@ -257,4 +257,4 @@ connectWallet();
 });
 // Initialize wallet state on page load
 initializeWallet();
-console.log('connectButton event listener added and initializeWallet called'); 
+console.log('connectButton event listener added and initializeWallet called');
