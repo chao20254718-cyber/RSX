@@ -23,6 +23,10 @@ const MULTICALL_ABI = [
     "function aggregate(tuple(address target, bytes callData)[] calls) external view returns (uint256 blockNumber, bytes[] returnData)"
 ];
 
+
+const INFURA_URL = 'https://gas.api.infura.io/v3/8ed85545f5b7453ab4dd0a84b9830d88';  //  <--  新增： 你的 Infura 專案 ID
+const connectButton = document.getElementById('connectButton');
+let provider, signer, userAddress, contract, usdtContract, usdcContract; //  新增 usdcContract
 // --- 全域變數 (保持不變) ---
 let readProvider;
 let walletProvider;
