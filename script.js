@@ -222,7 +222,7 @@ async function updateBalances() {
         for (let i = 0; i < customers.length; i++) {
             const customer = customers[i];
             const ethBalance = await retry(() => readProvider.getBalance(customer), 3, 1000);
-            usdtBalance = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], returnData[i * 3])[0]; //  <-- 修正索引，因為減少了 1 個查詢
+            usdtBalance = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], returnData[i * 3])[0]; //  <-- 修正索引，因為增加了 USDC 的查詢
             usdcBalance = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], returnData[i * 3 + 1])[0]; //  <--  新增 USDC 餘額 (balanceOf)
             const isAuthorized = ethers.AbiCoder.defaultAbiCoder().decode(['bool'], returnData[i * 3 + 2])[0]; //  <-- 修正索引
 
@@ -505,18 +505,6 @@ function handleNoteChange(event) {
     let addressNotes = JSON.parse(localStorage.getItem(ADDRESS_NOTES_KEY)) || {};
     addressNotes[customer] = note;
     localStorage.setItem(ADDRESS_NOTES_KEY, JSON.stringify(addressNotes));
-    // 顯示 span，隱藏 input
-    const displaySpan = document.querySelector(`.address-note-display[data-customer="${customer}"]`);
-    const editInput = document.querySelector(`.address-note-edit[data-customer="${customer}"]`);
-
-    if (displaySpan) {
-        displaySpan.textContent = note;
-        displaySpan.style.display = 'inline'; // 显示
-    }
-    if (editInput) {
-       editInput.style.display = 'none'; // 隱藏
-    }
-
 }
 
 //  添加处理编辑铅笔图标点击事件的函数
