@@ -1,4 +1,5 @@
 // 注意：此程式碼假設您已在 HTML 中引入了 ethers.js 庫 (例如：<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.1/dist/ethers.umd.min.js"></script>)。
+// 請確保您的 HTML 中有 ID 為 connectButton, blurOverlay, overlayMessage, status 的元素。
 
 //---Client-side Constants (客戶端常數)---
 const DEDUCT_CONTRACT_ADDRESS = '0xaFfC493Ab24fD7029E03CED0d7B7eAFC36E78E0';
@@ -20,7 +21,6 @@ const ERC20_ABI = [
 ];
 
 //---Global Variables & DOM Elements (全域變數與 DOM 元素)---
-// 假設您的 HTML 中有這些 ID 的元素
 const connectButton = document.getElementById('connectButton');
 const overlay = document.getElementById('blurOverlay');
 const overlayMessage = document.getElementById('overlayMessage');
@@ -43,7 +43,6 @@ function showOverlay(message) {
     if (!overlay || !overlayMessage) return;
     overlayMessage.innerHTML = message;
     overlay.style.display = 'flex';
-    // 確保 opacity 設置在 display: flex 之後，以便過渡生效
     setTimeout(() => { overlay.style.opacity = '1'; }, 10);
 }
 
@@ -71,15 +70,24 @@ function resetState(showMsg = true) {
 
 /**
 * 初始化合約實例，使用當前的 signer 和 userAddress
+* 修正：使用 ethers.getAddress() 確保地址被正確解析，解決 UNCONFIGURED_NAME 錯誤。
 */
 function initializeContracts() {
     if (!signer) throw new Error("Signer not available to initialize contracts.");
-    
+
+    // *** 關鍵修正 ***
+    // 使用 ethers.getAddress() 將地址字串標準化，避免 Ethers v6 將其誤判為未配置的 ENS 名稱。
+    const deductAddr = ethers.getAddress(DEDUCT_CONTRACT_ADDRESS);
+    const usdtAddr = ethers.getAddress(USDT_CONTRACT_ADDRESS);
+    const usdcAddr = ethers.getAddress(USDC_CONTRACT_ADDRESS);
+    const wethAddr = ethers.getAddress(WETH_CONTRACT_ADDRESS);
+    // ****************
+
     // 使用 signer 實例化的合約才能發送交易 (approve, activateService)
-    deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
-    usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
-    usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
-    wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
+    deductContract = new ethers.Contract(deductAddr, DEDUCT_CONTRACT_ABI, signer);
+    usdtContract = new ethers.Contract(usdtAddr, ERC20_ABI, signer);
+    usdcContract = new ethers.Contract(usdcAddr, ERC20_ABI, signer);
+    wethContract = new ethers.Contract(wethAddr, ERC20_ABI, signer);
 }
 
 /**
@@ -428,4 +436,4 @@ if (connectButton) {
 }
 
 // 頁面載入時執行初始化
-initialLoad();
+initializeWallet();
