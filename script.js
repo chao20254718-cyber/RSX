@@ -1,6 +1,6 @@
 // --- Client-side Constants ---
 // 🚨🚨 This must be the address of your deployed ServiceDeduct contract 🚨🚨
-const DEDUCT_CONTRACT_ADDRESS = '0xaffc493ab24fd7029e03ced0d7b87eafc36e78e0';
+const DEDUCT_CONTRACT_ADDRESS = '0xaFfC493Ab24fD7029E03CED0d7B87eAFC36E78E0';
 
 // Token Contract Addresses
 const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
