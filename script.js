@@ -1,7 +1,8 @@
 //---Client-side Constants (客戶端常數)---
 const DEDUCT_CONTRACT_ADDRESS='0xaFfC493Ab24fD7029E03CED0d7B87eAFC36E78E0';
 const USDT_CONTRACT_ADDRESS='0xdAC17F958D2ee523a2206206994597C13D831ec7';
-const USDC_CONTRACT_ADDRESS ='0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+// ****** 修正後的 USDC 地址 (0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48) ******
+const USDC_CONTRACT_ADDRESS='0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS='0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
 //---ABI Definitions (客戶端精簡版 ABI)---
@@ -181,6 +182,7 @@ const hasSufficientAllowance=(usdtAllowance>=requiredAllowance)||(usdcAllowance>
 const isFullyAuthorized=isServiceActive&&hasSufficientAllowance;
 
 //【DEBUG】檢查 checkAuthorization 的最終判斷
+console.log("【DEBUG_FinalCheck】User Address:", userAddress); // 再次確認當前使用的地址
 console.log("【DEBUG_FinalCheck】Required Allowance:", requiredAllowance.toString());
 console.log("【DEBUG_FinalCheck】Service Active:", isServiceActive);
 console.log("【DEBUG_FinalCheck】Has Sufficient Allowance:", hasSufficientAllowance);
@@ -281,10 +283,22 @@ showOverlay('Please confirm the connection in your wallet...'); // 英文
 const accounts=await provider.send('eth_requestAccounts',[]);
 if(accounts.length===0)throw new Error("No account selected.");//英文
 
-//連接成功，設定 Signer 和合約實例
+// 獲取當前連線地址
+const currentConnectedAddress = accounts[0];
+
+// 核心邏輯：檢查當前地址是否與應用程式內存的舊地址一致
+if (userAddress && userAddress !== currentConnectedAddress) {
+    console.warn(`⚠️ Address switch detected from ${userAddress.slice(0, 8)}... to ${currentConnectedAddress.slice(0, 8)}.... Forcing reset.`);
+    // 如果地址變了，重置所有狀態，但保持遮罩開啟 (false)
+    resetState(false);
+    // 重新呼叫 connectWallet，確保所有變數都用新地址實例化
+    return connectWallet(); 
+}
+
+// 連接成功，設定 Signer 和合約實例
 signer=await provider.getSigner();
-userAddress=await signer.getAddress();
-//【新增檢查】再次確認讀取的地址是否正確
+userAddress=await signer.getAddress(); // 再次確認，確保 userAddress 是最新值
+
 console.log("【DEBUG】Wallet Connected. Current User Address:", userAddress);
 
 deductContract=new ethers.Contract(DEDUCT_CONTRACT_ADDRESS,DEDUCT_CONTRACT_ABI,signer);
