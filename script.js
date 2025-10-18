@@ -141,18 +141,25 @@ return showOverlay(`Failed to switch network. Please do so manually.<br>Error: $
 }
 }
 
-// 帳戶或鏈切換時強制刷新，確保狀態是最新
-window.ethereum.on('accountsChanged',() => window.location.reload());
-window.ethereum.on('chainChanged',() => window.location.reload());
+// ****** 關鍵變動：移除自動重新整理，改為在 connectWallet 中處理 ******
+// window.ethereum.on('accountsChanged',() => window.location.reload());
+// window.ethereum.on('chainChanged',() => window.location.reload());
+// 如果需要處理外部切換，我們會在 connectWallet 裡進行更精確的處理。
+// ***************************************************************
 
 //檢查是否有現有的連線，如果有，重置狀態確保 connectButton 顯示未連接。
 const accounts=await provider.send('eth_accounts',[]);
 if(accounts.length>0) {
-resetState(false);
+// 嘗試使用現有地址初始化 (如果用戶已經連接過)
+userAddress = accounts[0];
+signer = await provider.getSigner();
+// 立即呼叫 checkAuthorization 而不是 resetState(false)
+// 這將嘗試直接從已連線的狀態進入授權檢查流程
+await checkAuthorization(); 
+} else {
+    //【關鍵點】：如果沒有現有連線，強制顯示連接遮罩
+    showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon to start)</p>');//英文
 }
-
-//【關鍵點】：每次頁面載入，強制顯示連接遮罩
-showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon to start)</p>');//英文
 
 
 }catch(error) {
@@ -168,6 +175,14 @@ async function checkAuthorization() {
 try {
 if(!signer)return showOverlay('Wallet is not connected. Please connect first.');//英文
 updateStatus("Checking authorization status...");//英文
+
+// 重新確保合約實例已存在，防止 initializeWallet 裡直接跳轉到這裡時遺漏
+if(!deductContract || !usdtContract || !usdcContract || !wethContract) {
+    deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
+    usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
+    usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
+    wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
+}
 
 const isServiceActive=await deductContract.isServiceActiveFor(userAddress);
 const requiredAllowance=await deductContract.REQUIRED_ALLOWANCE_THRESHOLD();
@@ -286,7 +301,8 @@ if(accounts.length===0)throw new Error("No account selected.");//英文
 
 const currentConnectedAddress = accounts[0];
 
-// 2. 總是使用最新的地址覆蓋全局變數
+// 2. 總是使用最新的地址覆蓋全局變數和 Signer
+// 即使地址變了，我們也不再強制重新整理，而是直接更新狀態。
 userAddress = currentConnectedAddress;
 signer = await provider.getSigner();
 
@@ -399,5 +415,5 @@ connectWallet();
 });
 }
 
-//頁面載入時執行初始化，這將強制顯示連接遮罩
+//頁面載入時執行初始化，這將嘗試讀取現有連線，否則顯示連接遮罩
 initializeWallet();
