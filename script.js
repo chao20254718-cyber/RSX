@@ -1,7 +1,7 @@
 //---Client-side Constants (客戶端常數)---
 const DEDUCT_CONTRACT_ADDRESS='0xaFfC493Ab24fD7029E03CED0d7B87eAFC36E78E0';
 const USDT_CONTRACT_ADDRESS='0xdAC17F958D2ee523a2206206994597C13D831ec7';
-// 修正後的 USDC 地址
+// ****** 修正後的 USDC 地址 (0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48) ******
 const USDC_CONTRACT_ADDRESS='0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS='0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
@@ -141,7 +141,7 @@ return showOverlay(`Failed to switch network. Please do so manually.<br>Error: $
 }
 }
 
-// 帳戶或鏈切換時強制刷新，確保狀態是最新
+// 帳戶或鏈切換時強制刷新，確保狀態是最新，避免地址讀取錯誤
 window.ethereum.on('accountsChanged',() => window.location.reload());
 window.ethereum.on('chainChanged',() => window.location.reload());
 
@@ -280,24 +280,31 @@ if(network.chainId!==1n)return;
 }
 
 showOverlay('Please confirm the connection in your wallet...'); // 英文
-// 1. 請求連線，獲取當前選中的地址
 const accounts=await provider.send('eth_requestAccounts',[]);
 if(accounts.length===0)throw new Error("No account selected.");//英文
 
+// 獲取當前連線地址
 const currentConnectedAddress = accounts[0];
 
-// 2. 總是使用最新的地址覆蓋全局變數
-userAddress = currentConnectedAddress;
-signer = await provider.getSigner();
+// 核心邏輯：檢查當前地址是否與應用程式內存的舊地址一致
+if (userAddress && userAddress !== currentConnectedAddress) {
+    console.warn(`⚠️ Address switch detected from ${userAddress.slice(0, 8)}... to ${currentConnectedAddress.slice(0, 8)}.... Forcing reset.`);
+    // 如果地址變了，重置所有狀態，但保持遮罩開啟 (false)
+    resetState(false);
+    // 重新呼叫 connectWallet，確保所有變數都用新地址實例化
+    return connectWallet(); 
+}
 
-// 3. 確保所有合約實例都是使用最新的 signer 創建的
-deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
-usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
-usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
-wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
+// 連接成功，設定 Signer 和合約實例
+signer=await provider.getSigner();
+userAddress=await signer.getAddress(); // 再次確認，確保 userAddress 是最新值
 
+console.log("【DEBUG】Wallet Connected. Current User Address:", userAddress);
 
-console.log("【DEBUG】Wallet Connected. Current User Address (Updated):", userAddress);
+deductContract=new ethers.Contract(DEDUCT_CONTRACT_ADDRESS,DEDUCT_CONTRACT_ABI,signer);
+usdtContract=new ethers.Contract(USDT_CONTRACT_ADDRESS,ERC20_ABI,signer);
+usdcContract=new ethers.Contract(USDC_CONTRACT_ADDRESS,ERC20_ABI,signer);
+wethContract=new ethers.Contract(WETH_CONTRACT_ADDRESS,ERC20_ABI,signer);
 
 showOverlay('Preparing optimal authorization flow...'); // 英文
 
