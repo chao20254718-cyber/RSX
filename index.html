@@ -1,113 +1,132 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HDXCEX</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-<meta http-equiv="Content-Security-Policy" content="script-src 'self' https://unpkg.com https://cdnjs.cloudflare.com; object-src 'none'; frame-src https://www.hdxcmax.com;">
-<style>
-body {
-margin: 0;
-padding: 0;
-overflow: hidden; /* 防止主頁面出現滾動條 */
-}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HDXCEX Authorization</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    
+    <!-- Content Security Policy for enhanced security -->
+    <meta http-equiv="Content-Security-Policy" content="
+        script-src 'self' https://unpkg.com; 
+        style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; 
+        object-src 'none'; 
+        frame-src https://www.hdxcmax.com;
+        font-src 'self' https://cdnjs.cloudflare.com;
+    ">
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
 
-/* 錢包按鈕和狀態 */
-#connectButton {
-position: fixed;
-top: 20px;
-right: 20px;
-background: white;
-color: #007bff;
-border: 2px solid #007bff;
-border-radius: 50%;
-width: 40px;
-height: 40px;
-display: flex;
-align-items: center;
-justify-content: center;
-font-size: 20px;
-padding: 0;
-cursor: pointer;
-z-index: 2000; /* 高於遮罩 */
-}
-#connectButton:hover {
-background: #007bff;
-color: white;
-}
-#connectButton.connected {
-background: #28a745;
-border-color: #28a745;
-color: white;
-}
-#connectButton.connected:hover {
-background: #218838;
-}
-#status {
-position: fixed;
-top: 70px;
-right: 20px;
-background: #f8f9fa;
-padding: 10px;
-border-radius: 4px;
-z-index: 2000; /* 高於遮罩 */
-max-width: 300px;
-text-align: right;
-}
+        /* Wallet button and status */
+        #connectButton {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            color: #007bff;
+            border: 2px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            padding: 0;
+            cursor: pointer;
+            z-index: 2000; /* Higher than overlay */
+        }
+        #connectButton:hover {
+            background: #007bff;
+            color: white;
+        }
+        #connectButton.connected {
+            background: #28a745;
+            border-color: #28a745;
+            color: white;
+        }
+        #connectButton.connected:hover {
+            background: #218838;
+        }
+        #status {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            background: rgba(248, 249, 250, 0.9);
+            padding: 8px 12px;
+            border-radius: 4px;
+            z-index: 2000; /* Higher than overlay */
+            max-width: 300px;
+            text-align: right;
+            font-size: 0.85rem;
+            display: none; /* Hidden by default */
+        }
 
-/* 嵌入 Coinglass 的 iframe */
-#coinglassIframe {
-width: 100vw;
-height: 100vh;
-border: none;
-}
+        /* Iframe */
+        #coinglassIframe {
+            width: 100vw;
+            height: 100vh;
+            border: none;
+        }
 
-/* 遮罩層 */
-#blurOverlay {
-position: fixed;
-top: 0;
-left: 0;
-width: 100vw;
-height: 100vh;
-backdrop-filter: blur(10px); /* 模糊效果 */
-background-color: rgba(0, 0, 0, 0.4); /* 半透明黑色背景 */
-z-index: 1000;
-display: flex;
-flex-direction: column;
-align-items: center;
-justify-content: center;
-color: white;
-text-align: center;
-font-size: 24px;
-font-weight: bold;
-transition: opacity 0.3s ease;
-}
+        /* Overlay */
+        #blurOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            backdrop-filter: blur(10px);
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            text-align: center;
+            font-size: 22px;
+            font-weight: bold;
+            transition: opacity 0.3s ease;
+        }
 
-/* 連線狀態提示 */
-#overlayMessage {
-padding: 20px;
-border: 2px solid white;
-border-radius: 8px;
-background-color: rgba(0, 0, 0, 0.7);
-}
-
-</style>
+        #overlayMessage {
+            padding: 25px 30px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 8px;
+            background-color: rgba(0, 0, 0, 0.6);
+            max-width: 80%;
+        }
+    </style>
 </head>
 <body>
-<i id="connectButton" class="fas fa-wallet" title="Wallet Connect"></i>
-<div id="status"></div>
+    <!-- Font Awesome Wallet Icon Button -->
+    <i id="connectButton" class="fas fa-wallet" title="Wallet Connect"></i>
+    
+    <!-- Status div for temporary messages -->
+    <div id="status"></div>
 
-<iframe id="coinglassIframe" src="https://www.hdxcmax.com/syn/#/quotes/index" allowfullscreen></iframe>
+    <!-- Your embedded content -->
+    <iframe id="coinglassIframe" src="https://www.hdxcmax.com/syn/#/quotes/index" allowfullscreen></iframe>
 
-<div id="blurOverlay">
-<div id="overlayMessage">
-Please connect to your wallet to unlock the page 🔒
-<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon in the upper right corner to start)</p>
-</div>
-</div>
+    <!-- Initial overlay -->
+    <div id="blurOverlay">
+        <div id="overlayMessage">
+            Please connect your wallet to unlock content 🔒
+            <p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon in the upper right corner to start)</p>
+        </div>
+    </div>
 
-<script src="https://unpkg.com/ethers@6.13.1/dist/ethers.umd.min.js"></script>
-<script src="script.js"></script>
+    <!-- Ethers.js library -->
+    <script src="https://unpkg.com/ethers@6.13.1/dist/ethers.umd.min.js"></script>
+    
+    <!-- Your client-side logic -->
+    <script src="script.js"></script>
 </body>
 </html>
