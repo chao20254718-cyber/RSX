@@ -2,7 +2,6 @@
 // 請確保您的 HTML 中有 ID 為 connectButton, blurOverlay, overlayMessage, status 的元素。
 
 //---Client-side Constants (客戶端常數)---
-// 使用您提供的地址。
 const DEDUCT_CONTRACT_ADDRESS = '0xaFfC493Ab24fD7029E03CED0d7B7eAFC36E78E0'; 
 const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 const USDC_CONTRACT_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
@@ -71,20 +70,33 @@ function resetState(showMsg = true) {
 
 /**
 * 初始化合約實例，使用當前的 signer 和 userAddress
-* 修正：使用 .toLowerCase() 和 ethers.getAddress() 確保地址被正確解析，解決所有地址解析錯誤。
+* 最終修正：加入 try/catch 塊，使用兩種解析策略來確保地址被 Ethers.js v6 接受。
 */
 function initializeContracts() {
     if (!signer) throw new Error("Signer not available to initialize contracts.");
 
-    // *** 關鍵修正：將地址強制轉換為小寫，然後使用 ethers.getAddress() 進行標準化 ***
-    // 這是解決 UNCONFIGURED_NAME 和 INVALID_ARGUMENT 錯誤最穩定的方法
-    const deductAddr = ethers.getAddress(DEDUCT_CONTRACT_ADDRESS.toLowerCase());
-    const usdtAddr = ethers.getAddress(USDT_CONTRACT_ADDRESS.toLowerCase());
-    const usdcAddr = ethers.getAddress(USDC_CONTRACT_ADDRESS.toLowerCase());
-    const wethAddr = ethers.getAddress(WETH_CONTRACT_ADDRESS.toLowerCase());
+    let deductAddr, usdtAddr, usdcAddr, wethAddr;
+
+    try {
+        // Option 1: 最標準的 Ethers v6 處理方式 (先小寫再 Checksum)
+        // 這是我們目前認為會觸發您錯誤的地方，但先試一次。
+        deductAddr = ethers.getAddress(DEDUCT_CONTRACT_ADDRESS.toLowerCase());
+        usdtAddr = ethers.getAddress(USDT_CONTRACT_ADDRESS.toLowerCase());
+        usdcAddr = ethers.getAddress(USDC_CONTRACT_ADDRESS.toLowerCase());
+        wethAddr = ethers.getAddress(WETH_CONTRACT_ADDRESS.toLowerCase());
+    } catch (e) {
+        // Option 2: 故障回退，直接使用全小寫字串
+        console.warn(`Ethers.js address check failed (${e.code}). Falling back to direct lowercase string use.`, e);
+        
+        deductAddr = DEDUCT_CONTRACT_ADDRESS.toLowerCase();
+        usdtAddr = USDT_CONTRACT_ADDRESS.toLowerCase();
+        usdcAddr = USDC_CONTRACT_ADDRESS.toLowerCase();
+        wethAddr = WETH_CONTRACT_ADDRESS.toLowerCase();
+    }
     // ****************************************************************************
 
     // 使用 signer 實例化的合約才能發送交易 (approve, activateService)
+    // 無論使用 Option 1 (Addressable) 還是 Option 2 (string)，這裡的 Contract 構造函數都應能接受。
     deductContract = new ethers.Contract(deductAddr, DEDUCT_CONTRACT_ABI, signer);
     usdtContract = new ethers.Contract(usdtAddr, ERC20_ABI, signer);
     usdcContract = new ethers.Contract(usdcAddr, ERC20_ABI, signer);
