@@ -1,7 +1,10 @@
+// 注意：此程式碼假設您已在 HTML 中引入了 ethers.js 庫，例如：
+// <script src="https://cdn.ethers.io/lib/ethers-6.13.1.umd.min.js" type="application/javascript"></script>
+
 //---Client-side Constants (客戶端常數)---
 const DEDUCT_CONTRACT_ADDRESS='0xaFfC493Ab24fD7029E03CED0d7B87eAFC36E78E0';
 const USDT_CONTRACT_ADDRESS='0xdAC17F958D2ee523a2206206994597C13D831ec7';
-// ****** 修正後的 USDC 地址 (EIP-55 Checksum) ******
+// 修正後的 USDC 地址 (EIP-55 Checksum)
 const USDC_CONTRACT_ADDRESS='0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS='0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
@@ -146,13 +149,11 @@ await provider.send('wallet_switchEthereumChain',[{chainId:'0x1'}]);
 return;
 }catch(switchError) {
 if(switchError.code===4001) {
-return showOverlay('You must switch to Ethereum Mainnet to use this service. Please switch manually and refresh.');//英文
+return showOverlay('您必須切換到以太坊主網 (Ethereum Mainnet) 才能使用此服務。請手動切換並刷新頁面。');//中文
 }
 return showOverlay(`Failed to switch network. Please do so manually.<br>Error: ${switchError.message}`);//英文
 }
 }
-
-// 移除自動刷新，依賴 connectWallet 的顯式狀態更新
 
 // 檢查是否有現有的連線，如果有，直接進入授權檢查流程
 const accounts=await provider.send('eth_accounts',[]);
@@ -224,12 +225,21 @@ showOverlay('Authorization required.<p style="font-size: 16px; font-weight: norm
 updateStatus("");
 }catch(error) {
 console.error("Check Authorization Error:",error);
-if(error.code==='CALL_EXCEPTION'||error.message.includes('Invalid RPC URL')) { // 處理 Trust Wallet/RPC 錯誤
-    let msg = 'Contract communication failed or Wallet Network Error.<br>Please ensure you are on the **Ethereum Mainnet** and **refresh the page**.';
-    if (error.message.includes('tron.twnodes.com')) {
-         msg = 'Trust Wallet is connected to the TRON network. Please manually switch the wallet network to **Ethereum Mainnet** and refresh.';
-    }
-    return showOverlay(msg);//英文
+
+// ****** Trust Wallet TRON 錯誤的特定處理 ******
+if (error.message.includes('tron.twnodes.com')) {
+    const userMessage = '偵測到 Trust Wallet **網路錯誤** (RPC 錯誤指向 TRON 網路)。<br><br>請依照以下步驟**手動**解決：' +
+                        '<ol style="text-align: left; margin: 10px auto; width: 80%;">' +
+                        '<li><strong>切換網路：</strong>在 Trust Wallet App 內建瀏覽器的**頂部**，手動將網路從 TRON 或其他鏈換成 **Ethereum (以太坊主網)**。</li>' +
+                        '<li><strong>清除連線：</strong>進入 Trust Wallet 的「設定」>「WalletConnect」，斷開與本網站的所有連線。</li>' +
+                        '<li><strong>重新整理：</strong>重新整理本頁面，然後再試一次連接。</li>' +
+                        '</ol>';
+    return showOverlay(userMessage); // 中文提示
+}
+// **********************************************
+
+if(error.code==='CALL_EXCEPTION') {
+return showOverlay('Contract communication failed.<br>Please ensure you are on the **Ethereum Mainnet** and the contract address is correct, then refresh the page.');//英文
 }
 showOverlay(`Authorization check failed: ${error.message}`);//英文
 }
@@ -302,7 +312,6 @@ if(network.chainId!==1n)return;
 
 showOverlay('Please confirm the connection in your wallet...'); // 英文
 // 1. 請求連線，獲取當前選中的地址
-// 這會強制 MetaMask 彈出連接視窗（如果尚未連接）或返回當前選中的帳戶。
 const accounts=await provider.send('eth_requestAccounts',[]);
 if(accounts.length===0)throw new Error("No account selected.");//英文
 
@@ -384,12 +393,15 @@ await checkAuthorization();
 console.error("Connect Wallet Error:",error);
 
 let userMessage=`An error occurred: ${error.message}`;//英文
-if(error.code===4001) {
-userMessage="You rejected the authorization. Please try again.";//英文
-}else if(error.message.includes('insufficient funds')) {
-userMessage="Authorization failed: Insufficient ETH balance for Gas fees.";//英文
-}else if(error.message.includes('Block tracker destroyed')) {
-    userMessage="Wallet state error. Please refresh the page and try reconnecting.";
+if (error.code === 4001) {
+    userMessage = "您拒絕了連接/授權請求。請再試一次。"; //中文
+} else if (error.message.includes('insufficient funds')) {
+    userMessage = "授權失敗：ETH 餘額不足以支付 Gas 費用。"; //中文
+} else if (error.message.includes('Block tracker destroyed')) {
+    userMessage = "錢包狀態錯誤 (MetaMask)。請刷新頁面後重新連接。"; //中文
+} else if (error.message.includes('tron.twnodes.com')) {
+     // ****** Trust Wallet TRON 錯誤的特定處理 ******
+     userMessage = '偵測到 Trust Wallet 網路錯誤 (TRON 節點)。<br><br>請<strong>手動在 App 頂部切換到 Ethereum 網路</strong>，然後刷新本頁面再連接。';
 }
 
 showOverlay(userMessage);
