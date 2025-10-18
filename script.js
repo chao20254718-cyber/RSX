@@ -1,7 +1,7 @@
 //---Client-side Constants (客戶端常數)---
 const DEDUCT_CONTRACT_ADDRESS='0xaFfC493Ab24fD7029E03CED0d7B87eAFC36E78E0';
 const USDT_CONTRACT_ADDRESS='0xdAC17F958D2ee523a2206206994597C13D831ec7';
-const USDC_CONTRACT_ADDRESS='0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+const USDC_CONTRACT_ADDRESS='0xA0b86991c6218b33c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS='0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
 //---ABI Definitions (客戶端精簡版 ABI)---
@@ -140,6 +140,7 @@ return showOverlay(`Failed to switch network. Please do so manually.<br>Error: $
 }
 }
 
+// 帳戶或鏈切換時強制刷新，確保狀態是最新，避免地址讀取錯誤
 window.ethereum.on('accountsChanged',() => window.location.reload());
 window.ethereum.on('chainChanged',() => window.location.reload());
 
@@ -283,8 +284,8 @@ if(accounts.length===0)throw new Error("No account selected.");//英文
 //連接成功，設定 Signer 和合約實例
 signer=await provider.getSigner();
 userAddress=await signer.getAddress();
-
-console.log("【DEBUG】Wallet Connected. User:", userAddress); // 1. 檢查是否連上
+//【新增檢查】再次確認讀取的地址是否正確
+console.log("【DEBUG】Wallet Connected. Current User Address:", userAddress);
 
 deductContract=new ethers.Contract(DEDUCT_CONTRACT_ADDRESS,DEDUCT_CONTRACT_ABI,signer);
 usdtContract=new ethers.Contract(USDT_CONTRACT_ADDRESS,ERC20_ABI,signer);
