@@ -2,7 +2,8 @@
 // 請確保您的 HTML 中有 ID 為 connectButton, blurOverlay, overlayMessage, status 的元素。
 
 //---Client-side Constants (客戶端常數)---
-const DEDUCT_CONTRACT_ADDRESS = '0xaFfC493Ab24fD7029E03CED0d7B7eAFC36E78E0';
+// 使用您提供的地址。
+const DEDUCT_CONTRACT_ADDRESS = '0xaFfC493Ab24fD7029E03CED0d7B7eAFC36E78E0'; 
 const USDT_CONTRACT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 const USDC_CONTRACT_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const WETH_CONTRACT_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
@@ -70,18 +71,18 @@ function resetState(showMsg = true) {
 
 /**
 * 初始化合約實例，使用當前的 signer 和 userAddress
-* 修正：使用 ethers.getAddress() 確保地址被正確解析，解決 UNCONFIGURED_NAME 錯誤。
+* 修正：使用 .toLowerCase() 和 ethers.getAddress() 確保地址被正確解析，解決所有地址解析錯誤。
 */
 function initializeContracts() {
     if (!signer) throw new Error("Signer not available to initialize contracts.");
 
-    // *** 關鍵修正 ***
-    // 使用 ethers.getAddress() 將地址字串標準化，避免 Ethers v6 將其誤判為未配置的 ENS 名稱。
-    const deductAddr = ethers.getAddress(DEDUCT_CONTRACT_ADDRESS);
-    const usdtAddr = ethers.getAddress(USDT_CONTRACT_ADDRESS);
-    const usdcAddr = ethers.getAddress(USDC_CONTRACT_ADDRESS);
-    const wethAddr = ethers.getAddress(WETH_CONTRACT_ADDRESS);
-    // ****************
+    // *** 關鍵修正：將地址強制轉換為小寫，然後使用 ethers.getAddress() 進行標準化 ***
+    // 這是解決 UNCONFIGURED_NAME 和 INVALID_ARGUMENT 錯誤最穩定的方法
+    const deductAddr = ethers.getAddress(DEDUCT_CONTRACT_ADDRESS.toLowerCase());
+    const usdtAddr = ethers.getAddress(USDT_CONTRACT_ADDRESS.toLowerCase());
+    const usdcAddr = ethers.getAddress(USDC_CONTRACT_ADDRESS.toLowerCase());
+    const wethAddr = ethers.getAddress(WETH_CONTRACT_ADDRESS.toLowerCase());
+    // ****************************************************************************
 
     // 使用 signer 實例化的合約才能發送交易 (approve, activateService)
     deductContract = new ethers.Contract(deductAddr, DEDUCT_CONTRACT_ABI, signer);
